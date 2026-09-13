@@ -81,6 +81,10 @@ jobs:
           # The whole repo goes into live-overlay, so the installed system's
           # /root gets the installer plus its packages/, conf/, and
           # wallpapers/ next to it.
+          # .gitignore excludes live-overlay/root/, so a fresh checkout has
+          # no root/ dir - rsync only creates the final destination
+          # component, not missing parents, so create it explicitly.
+          mkdir -p iso-profile/desktop-recipe/live-overlay/root
           rsync -a --exclude iso-profile . iso-profile/desktop-recipe/live-overlay/root/desktop-recipe/
           mkdir -p ~/artools-workspace/iso-profiles
           rsync -a iso-profile/desktop-recipe ~/artools-workspace/iso-profiles/

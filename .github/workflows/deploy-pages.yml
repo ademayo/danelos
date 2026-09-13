@@ -24,7 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Site must be enabled once in repo Settings > Pages with Source:
+      # "GitHub Actions" (GITHUB_TOKEN cannot create Pages sites:
+      # actions/configure-pages#40). configure-pages only reads metadata.
       - name: Setup Pages
+        id: pages-setup
         uses: actions/configure-pages@v5
 
       - name: Collect site content
