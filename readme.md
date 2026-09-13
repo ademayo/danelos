@@ -159,3 +159,7 @@ User services (via userspawn): `dbus`, `pipewire`, `pipewire-pulse`,
 - To change wallpaper: edit `~/.config/hypr/hyprpaper.conf` (and
   `~/.config/hypr/hyprlock.conf`), or swap `moraine-lake.jpg` for a different
   image from the set.
+
+## License
+
+[MIT](LICENSE)
