@@ -96,7 +96,16 @@ jobs:
           # no -v: this buildiso does not accept it (prints usage, exits 0,
           # builds nothing) and the failed build still returned success,
           # leaving iso-out empty
-          buildiso -p desktop-recipe -i dinit -R stable -t "$PWD/iso-out"
+          #
+          # The container root is an overlayfs, and mount(8) refuses overlay
+          # upperdirs on top of overlayfs ("not supported as upperdir"),
+          # which make_livefs and make_grub need. Chroots therefore live on
+          # a tmpfs (-r), and /dev/loop* nodes beyond 0/1 are created for
+          # the efiboot.img loop mount.
+          mount --mkdir -t tmpfs tmpfs /mnt/artools-tmp
+          for i in $(seq 0 15); do [ -e "/dev/loop$i" ] || mknod "/dev/loop$i" b 7 "$i"; done
+          buildiso -p desktop-recipe -i dinit -R stable \
+            -r /mnt/artools-tmp/buildiso -t "$PWD/iso-out"
 
       - name: Collect Artifacts And Checksums
         run: |
