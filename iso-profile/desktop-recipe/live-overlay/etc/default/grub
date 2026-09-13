@@ -1,0 +1,13 @@
+# This file is part of the desktop recipe live ISO.
+# Live session user is configured by artools; installed systems get their own
+# user from the installer script.
+
+GRUB_TIMEOUT="3"
+GRUB_DISTRIBUTOR="Artix"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+GRUB_CMDLINE_LINUX="net.ifnames=0"
+GRUB_PRELOAD_MODULES="part_gpt part_msdos"
+GRUB_GFXMODE="1024x768,800x600"
+GRUB_GFXPAYLOAD_LINUX="keep"
+GRUB_DISABLE_LINUX_RECOVERY="true"
+GRUB_DISABLE_OS_PROBER="false"

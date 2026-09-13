@@ -1,0 +1,6 @@
+# Live session polkit: allow wheel group power/session management without prompting
+polkit.addRule(function(action, subject) {
+    if (subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});

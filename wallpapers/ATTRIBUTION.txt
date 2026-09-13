@@ -1,0 +1,9 @@
+Wallpapers — Sourced From Pexels (Free To Use, No Attribution Required)
+All images downloaded at 3840px wide, JPEG.
+
+moraine-lake.jpg   Moraine Lake, Banff NP — Mountains And Lake At Sunrise
+skogafoss.jpg      Skogafoss, Iceland — Waterfall Between Cliffs
+reschensee.jpg     Reschensee, Italy — Snowy Peaks Mirrored In A Still Lake
+alpine-sunset.jpg  Alpine Sunset — Layered Mountain Ridges At Dusk
+
+Default: moraine-lake.jpg (Used By Hyprpaper + Hyprlock).

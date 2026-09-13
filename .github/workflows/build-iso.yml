@@ -1,0 +1,152 @@
+name: Build ISO
+
+on:
+  workflow_dispatch:
+
+  # Every push to master rebuilds the ISO unconditionally.
+  push:
+    branches: [master]
+    paths-ignore:
+      - "docs/**"
+      - "readme.md"
+      - "**.md"
+      - ".github/workflows/deploy-pages.yml"
+
+  # On schedule: only when Artix publishes a new base-dinit release.
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changed: ${{ steps.version.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect Newest Artix Release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          version="$(.github/workflows/scripts/latest-artix-iso-version.sh)"
+          if [ -z "$version" ]; then
+            echo "Could not fetch the Artix ISO index; skipping."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Newest Artix ISO: $version"
+          echo "Trigger: ${{ github.event_name }}"
+
+          # Push events rebuild unconditionally: the tag gets overwritten so
+          # the release always tracks the newest recipe + newest Artix base.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "Push event — building unconditionally."
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif gh release view "artix-$version" --repo "$REPO" > /dev/null 2>&1; then
+            echo "Release artix-$version exists; nothing to do."
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New Artix release with no matching build."
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-iso:
+    needs: check-release
+    if: needs.check-release.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: artixlinux/artixlinux:base-dinit
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare Build Environment
+        run: |
+          pacman -Sy --noconfirm --needed artools-base artools-iso git rsync \
+            squashfs-tools grub xorriso libisoburn dosfstools mtools go-yq
+
+      - name: Bake The Installer Into The Live Overlay
+        run: |
+          # buildiso reads profiles from ${WORKSPACE_DIR}/iso-profiles; the
+          # workspace overlays the packaged /usr/share/artools/iso-profiles.
+          # The whole repo goes into live-overlay, so the installed system's
+          # /root gets the installer plus its packages/, conf/, and
+          # wallpapers/ next to it.
+          rsync -a --exclude iso-profile . iso-profile/desktop-recipe/live-overlay/root/desktop-recipe/
+          mkdir -p ~/artools-workspace/iso-profiles
+          rsync -a iso-profile/desktop-recipe ~/artools-workspace/iso-profiles/
+
+      - name: Build The ISO (dinit)
+        env:
+          BUILD_VERSION: ${{ needs.check-release.outputs.version }}
+        run: |
+          buildiso -p desktop-recipe -i dinit -R stable -t "$PWD/iso-out" -v
+
+      - name: Collect Artifacts And Checksums
+        run: |
+          mkdir -p dist
+          find iso-out -name '*.iso' -exec mv {} dist/ \;
+          cd dist
+          sha256sum *.iso > sha256sums.txt
+          b2sum *.iso > b2sums.txt
+          ls -lh
+          echo "--- sha256 ---"
+          cat sha256sums.txt
+
+      - name: Read Checksums For Release Body
+        run: |
+          {
+            echo "### Checksums"
+            echo
+            echo '```'
+            cat dist/sha256sums.txt
+            cat dist/b2sums.txt
+            echo '```'
+          } >> dist/release-notes.md
+
+      - name: Upload ISO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-recipe-dinit-${{ needs.check-release.outputs.version }}
+          path: |
+            dist/*.iso
+            dist/sha256sums.txt
+            dist/b2sums.txt
+          retention-days: 14
+          if-no-files-found: error
+
+  release:
+    needs: [check-release, build-iso]
+    if: needs.check-release.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Built ISO
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-recipe-dinit-${{ needs.check-release.outputs.version }}
+          path: dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: artix-${{ needs.check-release.outputs.version }}
+          name: Artix ${{ needs.check-release.outputs.version }}
+          body_path: dist/release-notes.md
+          # push builds re-tag and re-upload: assets are replaced, keeping
+          # the release always current for its Artix base version
+          make_latest: true
+          overwrite_files: true
+          files: |
+            dist/*.iso
+            dist/sha256sums.txt
+            dist/b2sums.txt
+          fail_on_unmatched_files: true

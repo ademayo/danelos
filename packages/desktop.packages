@@ -1,0 +1,73 @@
+# Desktop Packages — Hyprland Desktop On Artix + dinit
+#
+# Compositor + Ecosystem (All In Artix world/galaxy)
+hyprland
+hyprland-guiutils
+hyprland-qt-support
+hypridle
+hyprlock
+hyprpaper
+hyprshot
+hyprpolkitagent
+xdg-desktop-portal
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+xorg-xwayland
+
+# Bar, Launcher, Logout
+waybar
+rofi
+fuzzel
+wlogout
+
+# Terminal, File Manager, Utilities — XFCE/MATE Ecosystem, No GNOME Apps
+alacritty
+thunar
+thunar-archive-plugin
+gvfs
+gvfs-mtp
+xarchiver
+pavucontrol-qt
+playerctl
+brightnessctl
+swaybg
+mpv
+grim
+slurp
+wl-clipboard
+cliphist
+
+# Everyday Desktop: Calculator, Image Viewer, PDF Viewer, Thumbnails
+galculator
+ristretto
+qpdfview           # Artix galaxy
+tumbler
+
+# Login Manager: greetd + tuigreet (Native Wayland/KMS Greeter, No X11)
+greetd
+greetd-tuigreet
+greetd-dinit
+accountsservice
+
+# Theme: Arc Dark + Papirus + Fonts
+arc-gtk-theme
+gnome-themes-extra
+papirus-icon-theme
+adwaita-icon-theme
+adwaita-icon-theme-legacy
+adwaita-fonts
+ttf-cascadia-code-nerd
+noto-fonts
+noto-fonts-emoji
+papirus-folders        # chaotic-aur
+polkit-gnome
+
+# Qt theming under Wayland
+qt5-wayland
+qt6-wayland
+qt5ct
+qt6ct
+
+# Browsers
+ungoogled-chromium-bin  # chaotic-aur
+librewolf               # Artix galaxy

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="An install recipe for a complete Artix Linux desktop — dinit, Hyprland, Arc Dark.">
+<title>Artix + Hyprland Desktop Recipe</title>
+<style>
+  :root {
+    --bg: #2f343f;
+    --bg-alt: #3b4152;
+    --bg-deep: #2b2e34;
+    --fg: #d3dae3;
+    --fg-dim: #8b8f98;
+    --accent: #5294e2;
+    --red: #f8606a;
+    --green: #96d988;
+    --yellow: #f3d469;
+    --border: rgba(82, 148, 226, 0.35);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Adwaita Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.65;
+    min-height: 100vh;
+  }
+  code, pre, .mono {
+    font-family: "CaskaydiaCove Nerd Font", "Cascadia Code", ui-monospace, monospace;
+  }
+
+  /* hero */
+  .hero {
+    background:
+      linear-gradient(160deg, rgba(47,52,63,0.88) 0%, rgba(43,46,52,0.94) 100%),
+      url("assets/moraine-lake-thumb.jpg") center 30% / cover no-repeat;
+    padding: 88px 24px 72px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero h1 {
+    font-size: clamp(1.9rem, 5vw, 3rem);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #ffffff;
+  }
+  .hero h1 span { color: var(--accent); }
+  .hero p.tagline {
+    margin: 14px auto 30px;
+    max-width: 640px;
+    font-size: 1.08rem;
+    color: var(--fg);
+  }
+  .hero .badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .badge {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-size: 0.86rem;
+    color: var(--fg);
+  }
+  .badge b { color: var(--accent); font-weight: 600; }
+
+  /* layout */
+  main { max-width: 1060px; margin: 0 auto; padding: 56px 24px 24px; }
+  section { margin-bottom: 64px; }
+  h2 {
+    font-size: 1.5rem;
+    color: #ffffff;
+    margin-bottom: 22px;
+    padding-left: 14px;
+    border-left: 4px solid var(--accent);
+  }
+  h3 { color: var(--accent); margin-bottom: 10px; font-size: 1.08rem; }
+  p + p { margin-top: 12px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .dim { color: var(--fg-dim); }
+
+  /* stack grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--bg-deep);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 10px;
+    padding: 18px 18px 14px;
+  }
+  .card h3 { display: flex; align-items: center; gap: 8px; }
+  .card .icon { color: var(--accent); font-weight: 700; }
+  .card p { font-size: 0.92rem; color: var(--fg-dim); }
+
+  /* code blocks */
+  pre {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+  pre .cmt { color: var(--fg-dim); }
+  pre .cmd { color: var(--green); }
+  pre .str { color: var(--yellow); }
+  .code-wrap { position: relative; }
+  .code-wrap .lbl {
+    position: absolute; top: 8px; right: 14px;
+    font-size: 0.72rem; color: var(--fg-dim);
+    font-family: ui-monospace, monospace;
+  }
+
+  /* wallpapers */
+  .shots {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+  .shots figure {
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: var(--bg-deep);
+  }
+  .shots img { display: block; width: 100%; height: 170px; object-fit: cover; }
+  .shots figcaption {
+    padding: 9px 14px;
+    font-size: 0.84rem;
+    color: var(--fg-dim);
+  }
+  .shots figcaption b { color: var(--fg); font-weight: 600; }
+
+  /* keymap table */
+  table.keys {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.93rem;
+  }
+  table.keys td { padding: 9px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  table.keys td:first-child { color: var(--fg-dim); width: 40%; }
+  kbd {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-family: ui-monospace, monospace;
+    font-size: 0.84rem;
+    color: var(--fg);
+  }
+
+  /* services */
+  .svc { display: flex; flex-wrap: wrap; gap: 8px; }
+  .svc span {
+    background: var(--bg-deep);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-family: ui-monospace, monospace;
+    font-size: 0.84rem;
+  }
+  .svc span b { color: var(--accent); font-weight: 500; }
+
+  footer {
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin-top: 40px;
+    padding: 26px 24px 40px;
+    text-align: center;
+    font-size: 0.86rem;
+    color: var(--fg-dim);
+  }
+  footer a { color: var(--fg); }
+
+  @media (max-width: 640px) {
+    .hero { padding: 64px 18px 52px; }
+    main { padding: 40px 18px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>Artix <span>+</span> Hyprland <span>Desktop Recipe</span></h1>
+  <p class="tagline">One command from the Artix ISO to a complete tiling desktop.
+  dinit as init, Hyprland as the compositor, Arc Dark gluing it together.
+  What you end up with reads as a hand-configured Artix install.</p>
+  <div class="badges">
+    <span class="badge"><b>Artix</b> Linux</span>
+    <span class="badge"><b>dinit</b> init</span>
+    <span class="badge"><b>Hyprland</b> Wayland</span>
+    <span class="badge"><b>Arc Dark</b> theme</span>
+    <span class="badge"><b>greetd</b> + tuigreet</span>
+    <span class="badge"><b>zsh</b> + agnoster</span>
+  </div>
+</header>
+
+<main>
+
+<section>
+  <h2>The Stack</h2>
+  <div class="grid">
+    <div class="card"><h3><span class="icon">◆</span> Base</h3><p>Artix Linux, dinit init, elogind, turnstile + userspawn for session tracking.</p></div>
+    <div class="card"><h3><span class="icon">▣</span> Compositor</h3><p>Hyprland with hypridle, hyprlock, hyprpaper, hyprshot — native Wayland throughout.</p></div>
+    <div class="card"><h3><span class="icon">⏻</span> Login</h3><p>greetd + tuigreet on the console (KMS). No X server anywhere in the boot path.</p></div>
+    <div class="card"><h3><span class="icon">⌘</span> Shell</h3><p>zsh as default with an agnoster prompt, autosuggestions and syntax highlighting. dash as /bin/sh.</p></div>
+    <div class="card"><h3><span class="icon">▤</span> Terminal</h3><p>alacritty, Arc Dark palette, CaskaydiaCove Nerd Font. Bound to Ctrl+Alt+T and Super+Return.</p></div>
+    <div class="card"><h3><span class="icon">◫</span> Desktop</h3><p>waybar, rofi, wlogout, thunar + tumbler thumbnails. Arc Dark GTK + Papirus icons across GTK and Qt.</p></div>
+    <div class="card"><h3><span class="icon">✦</span> Everyday Apps</h3><p>ristretto (images), mpv (video), qpdfview (PDFs), galculator, xarchiver, pavucontrol-qt (sound) — lightweight XFCE/MATE/Qt picks, no GNOME apps.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Install</h2>
+  <p>Grab the latest ISO from the repo's <b>Releases</b> — the CI builds one automatically
+  every time Artix publishes a new release. Write it to a USB stick, boot it, log in as the
+  live user (password <span class="mono">artix</span>), then:</p>
+  <div class="code-wrap"><span class="lbl">live session</span>
+<pre><span class="cmt"># wipes the target disk — the installer asks before touching anything</span>
+<span class="cmd">sudo ./installer/recipe</span></pre>
+  </div>
+  <p style="margin-top:14px">It asks for hostname, your name, username, passwords and timezone,
+  then partitions the disk as EFI + swap + Btrfs root (<span class="mono">@</span> and
+  <span class="mono">@home</span> subvolumes, zstd compression), pacstraps Artix + dinit,
+  installs the desktop, creates your user and sets up GRUB. Reboot into Hyprland.</p>
+</section>
+
+<section>
+  <h2>Wallpapers</h2>
+  <p class="dim" style="margin-bottom:16px">Four Pexels photos ship with the install —
+  hyprpaper and hyprlock both use them. Free license, see ATTRIBUTION in the repo.</p>
+  <div class="shots">
+    <figure><img src="assets/moraine-lake-thumb.jpg" alt="Moraine Lake" loading="lazy"><figcaption><b>moraine-lake</b> — Moraine Lake, Banff · default</figcaption></figure>
+    <figure><img src="assets/skogafoss-thumb.jpg" alt="Skogafoss" loading="lazy"><figcaption><b>skogafoss</b> — Iceland</figcaption></figure>
+    <figure><img src="assets/reschensee-thumb.jpg" alt="Reschensee" loading="lazy"><figcaption><b>reschensee</b> — Italy</figcaption></figure>
+    <figure><img src="assets/alpine-sunset-thumb.jpg" alt="Alpine sunset" loading="lazy"><figcaption><b>alpine-sunset</b> — layered ridges</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2>Keyboard</h2>
+  <table class="keys">
+    <tr><td>Launcher</td><td><kbd>Ctrl</kbd>+<kbd>Space</kbd> · <kbd>Alt</kbd>+<kbd>Space</kbd> · <kbd>Super</kbd>+<kbd>D</kbd></td></tr>
+    <tr><td>Terminal</td><td><kbd>Super</kbd>+<kbd>Return</kbd> · <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd></td></tr>
+    <tr><td>Lock screen</td><td><kbd>Super</kbd>+<kbd>L</kbd></td></tr>
+    <tr><td>Power menu</td><td><kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd></td></tr>
+    <tr><td>Screenshots</td><td><kbd>PrtSc</kbd> full · <kbd>Shift</kbd>+<kbd>PrtSc</kbd> region</td></tr>
+    <tr><td>Keybind cheatsheet</td><td><kbd>Super</kbd>+<kbd>/</kbd></td></tr>
+    <tr><td>Clipboard history</td><td><kbd>Super</kbd>+<kbd>V</kbd></td></tr>
+    <tr><td>Workspaces</td><td><kbd>Super</kbd>+<kbd>1..9</kbd>, move with <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>1..9</kbd></td></tr>
+    <tr><td>Focus</td><td><kbd>Super</kbd>+<kbd>H/J/K/L</kbd> or arrow keys</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>dinit Services</h2>
+  <p class="dim" style="margin-bottom:16px">System services enabled through
+  <span class="mono">boot.d</span> symlinks; user services through userspawn.</p>
+  <div class="svc">
+    <span><b>NetworkManager</b></span>
+    <span><b>bluetoothd</b></span>
+    <span><b>avahi-daemon</b></span>
+    <span><b>sshd</b></span>
+    <span><b>cronie</b></span>
+    <span><b>turnstiled</b></span>
+    <span><b>greetd</b></span>
+    <span><b>userspawn</b></span>
+    <span><b>dbus</b> (user)</span>
+    <span><b>pipewire</b> (user)</span>
+    <span><b>wireplumber</b> (user)</span>
+  </div>
+</section>
+
+<section>
+  <h2>How The ISO Gets Built</h2>
+  <p>A GitHub Actions workflow watches
+  <a href="https://iso.artixlinux.org">iso.artixlinux.org</a> for a new
+  <span class="mono">artix-base-dinit</span> stamp. When upstream ships one, artools
+  <span class="mono">buildiso</span> runs inside the official Artix container with this repo's
+  profile — Hyprland, greetd, the dinit service set, and the installer baked into the live
+  session. The finished ISO and its sha256 checksums land in Releases.</p>
+</section>
+
+</main>
+
+<footer>
+  <p>Artix + dinit + Hyprland · wallpapers from Pexels ·
+  source and installer at the <a href="#" id="repo-link">project repository</a></p>
+</footer>
+
+<script>
+  // point the footer link at whatever repo hosts this page
+  const host = location.hostname;
+  if (host.endsWith("github.io")) {
+    const owner = host.split(".")[0];
+    const repo = location.pathname.split("/")[1] || "desktop-recipe";
+    document.getElementById("repo-link").href = `https://github.com/${owner}/${repo}`;
+  }
+</script>
+
+</body>
+</html>

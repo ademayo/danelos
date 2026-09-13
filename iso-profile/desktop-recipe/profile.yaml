@@ -1,0 +1,99 @@
+---
+# Desktop Recipe ISO profile — dinit flavour (built with `buildiso -i dinit`)
+
+live-session:
+  user: "artix"
+  password: "artix"
+  autologin: false
+  use-xlibre: false
+  services:
+    - NetworkManager
+    - syslog-ng
+  user-services:
+    - dbus
+
+rootfs:
+  packages:
+    # Compositor stack
+    - hyprland
+    - hyprland-guiutils
+    - hyprland-qt-support
+    - hypridle
+    - hyprlock
+    - hyprpaper
+    - hyprshot
+    - hyprpolkitagent
+    - xdg-desktop-portal
+    - xdg-desktop-portal-hyprland
+    - xdg-desktop-portal-gtk
+    - xorg-xwayland
+
+    # Bar, launcher, logout
+    - waybar
+    - rofi
+    - wlogout
+
+    # Terminal, file manager, utilities (XFCE/MATE ecosystem, no GNOME apps)
+    - alacritty
+    - thunar
+    - thunar-archive-plugin
+    - gvfs
+    - xarchiver
+    - pavucontrol-qt
+    - brightnessctl
+    - grim
+    - slurp
+    - wl-clipboard
+    - cliphist
+    - mpv
+
+    # Everyday desktop: calculator, image viewer, PDF viewer, thumbnails
+    - galculator
+    - ristretto
+    - qpdfview
+    - tumbler
+
+    # Login manager
+    - greetd
+    - greetd-tuigreet
+    - accountsservice
+
+    # Theme
+    - arc-gtk-theme
+    - gnome-themes-extra
+    - papirus-icon-theme
+    - adwaita-icon-theme
+    - adwaita-icon-theme-legacy
+    - adwaita-fonts
+    - ttf-cascadia-code-nerd
+    - noto-fonts
+    - noto-fonts-emoji
+
+    # Qt theming under Wayland
+    - qt5-wayland
+    - qt6-wayland
+    - qt6ct
+    # Browsers
+    - librewolf
+
+    # Base extras the desktop expects
+    - elogind
+    - turnstile
+    - userspawn
+
+  packages-init:
+    dinit:
+      - networkmanager-dinit
+      - syslog-ng-dinit
+      - elogind-dinit
+      - dbus-dinit
+      - turnstile-dinit
+      - greetd-dinit
+      - userspawn-dinit
+
+livefs:
+  packages:
+    - mkinitcpio-nfs-utils
+    - squashfs-tools
+    - artix-grub-live
+    - broadcom-wl

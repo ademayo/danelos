@@ -1,0 +1,73 @@
+# -*- css -*-
+# Waybar — Arc Dark
+
+* {
+    font-family: "Adwaita Sans", "CaskaydiaCove Nerd Font", sans-serif;
+    font-size: 12px;
+    min-height: 0;
+    border: none;
+    border-radius: 0;
+}
+
+window#waybar {
+    background: rgba(43, 46, 52, 0.85);
+    color: #d3dae3;
+    border-bottom: 1px solid rgba(26, 28, 32, 0.75);
+}
+
+#workspaces {
+    margin: 0 4px;
+}
+
+#workspaces button {
+    padding: 0 8px;
+    margin: 3px 2px;
+    color: #8b8f98;
+    border-radius: 10px;
+    background: transparent;
+    transition: all 0.2s ease;
+}
+
+#workspaces button.active,
+#workspaces button.focused {
+    color: #ffffff;
+    background: rgba(82, 148, 226, 0.85);
+}
+
+#workspaces button.urgent {
+    color: #ffffff;
+    background: rgba(248, 96, 106, 0.85);
+}
+
+#workspaces button:hover {
+    color: #d3dae3;
+    background: rgba(82, 148, 226, 0.35);
+}
+
+#clock,
+#cpu,
+#memory,
+#network,
+#pulseaudio,
+#battery,
+#tray {
+    padding: 0 10px;
+    color: #d3dae3;
+}
+
+#clock {
+    color: #ffffff;
+    font-weight: bold;
+}
+
+#pulseaudio.muted {
+    color: #f8606a;
+}
+
+#battery.warning {
+    color: #f9c440;
+}
+
+#battery.critical {
+    color: #fc625d;
+}

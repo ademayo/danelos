@@ -1,0 +1,4 @@
+# -*- conf -*-
+# User dinit Boot — Started By userspawn On Graphical Login
+type = internal
+waits-for.d = ./boot.d
