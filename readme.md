@@ -12,7 +12,7 @@ with stock session entries and bootloader settings throughout.
 
 | Layer      | Choice                                                        |
 | ---------- | ------------------------------------------------------------- |
-| Base       | Artix Linux, dinit init, elogind, turnstile + userspawn        |
+| Base       | Artix Linux, dinit init, elogind, userspawn                     |
 | Compositor | Hyprland (with hypridle, hyprlock, hyprpaper, hyprshot)        |
 | Login      | greetd + tuigreet (console greeter)                            |
 | Launchers  | rofi (`Ctrl+Space`, also `Alt+Space` / `Super+D`)              |
@@ -140,7 +140,6 @@ Enabled via `boot.d` symlinks by the installer:
 - `avahi-daemon` (avahi-dinit)
 - `sshd` (openssh-dinit)
 - `cronie` (cronie-dinit)
-- `turnstiled` (turnstile-dinit) — logind-style session tracking
 - `greetd` (greetd-dinit) — login manager (tuigreet greeter)
 - `userspawn` (userspawn-dinit) — starts `dinit --user` on login
 

@@ -27,7 +27,6 @@ sudo
 polkit
 elogind
 seatd
-turnstile
 userspawn
 dbus-dinit
 dbus-dinit-user

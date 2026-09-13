@@ -78,7 +78,6 @@ rootfs:
 
     # Base extras the desktop expects
     - elogind
-    - turnstile
     - userspawn
 
   packages-init:
@@ -87,7 +86,6 @@ rootfs:
       - syslog-ng-dinit
       - elogind-dinit
       - dbus-dinit
-      - turnstile-dinit
       - greetd-dinit
       - userspawn-dinit
 

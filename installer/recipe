@@ -430,7 +430,7 @@ install_grub() {
 
 enable_services() {
   step "Enabling Services (dinit)"
-  for svc in NetworkManager bluetoothd avahi-daemon sshd cronie turnstiled greetd userspawn; do
+  for svc in NetworkManager bluetoothd avahi-daemon sshd cronie greetd userspawn; do
     if [ -e "/mnt/etc/dinit.d/$svc" ]; then
       ln -sfn "/mnt/etc/dinit.d/$svc" "/mnt/etc/dinit.d/boot.d/$svc" 2>/dev/null || true
     fi

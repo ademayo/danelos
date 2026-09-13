@@ -93,7 +93,10 @@ jobs:
         env:
           BUILD_VERSION: ${{ needs.check-release.outputs.version }}
         run: |
-          buildiso -p desktop-recipe -i dinit -R stable -t "$PWD/iso-out" -v
+          # no -v: this buildiso does not accept it (prints usage, exits 0,
+          # builds nothing) and the failed build still returned success,
+          # leaving iso-out empty
+          buildiso -p desktop-recipe -i dinit -R stable -t "$PWD/iso-out"
 
       - name: Collect Artifacts And Checksums
         run: |
