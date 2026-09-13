@@ -104,8 +104,19 @@ jobs:
           # the efiboot.img loop mount.
           mount --mkdir -t tmpfs tmpfs /mnt/artools-tmp
           for i in $(seq 0 15); do [ -e "/dev/loop$i" ] || mknod "/dev/loop$i" b 7 "$i"; done
+          set -o pipefail
           buildiso -p desktop-recipe -i dinit -R stable \
-            -r /mnt/artools-tmp/buildiso -t "$PWD/iso-out"
+            -r /mnt/artools-tmp/buildiso -t "$PWD/iso-out" 2>&1 | tee /tmp/buildiso.log
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildiso-log
+          path: /tmp/buildiso.log
+          if-no-files-found: ignore
+          retention-days: 7
+
 
       - name: Collect Artifacts And Checksums
         run: |
