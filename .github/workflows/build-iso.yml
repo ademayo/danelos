@@ -73,6 +73,18 @@ jobs:
         run: |
           pacman -Sy --noconfirm --needed artools-base artools-iso git rsync \
             squashfs-tools grub xorriso libisoburn dosfstools mtools go-yq
+          # artools' common.yaml packages-base lists `vi`, which is now only a
+          # virtual provided by two packages (ex-vi-compat in world,
+          # ex-evi-compat in galaxy). pacman's provider selection reads stdin
+          # and hangs the container job on the open CI pipe. Pick a concrete
+          # provider instead; ex-vi-compat depends on vim, so the live ISO
+          # keeps both.
+          common_yaml=/usr/share/artools/iso-profiles/common/common.yaml
+          sed -i 's/^  - vi$/  - ex-vi-compat/' "$common_yaml"
+          if grep -qE '^  - vi$' "$common_yaml"; then
+            echo "Upstream common.yaml no longer matches the vi patch" >&2
+            exit 1
+          fi
 
       - name: Bake The Installer Into The Live Overlay
         run: |
