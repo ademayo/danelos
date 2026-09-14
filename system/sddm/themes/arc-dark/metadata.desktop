@@ -1,0 +1,11 @@
+[SddmGreeterTheme]
+Name=Arc Dark
+Description=Arc Dark theme for SDDM (palette-matched to the danelos desktop)
+Author=danelos
+License=MIT
+Type=sddm-theme
+Version=1.0
+MainScript=Main.qml
+ConfigFile=theme.conf
+Theme-Id=arc-dark
+Theme-API=2.0

@@ -12,13 +12,13 @@
 # ============================================================================
 set -eEuo pipefail
 
-VERSION="0.1"
+VERSION="0.2"
 MNT=/mnt
 LOG=/tmp/install.log
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd)"
 
 # ----------------------------------------------------------------------------
-# Look And Feel
+# Look and Feel
 # ----------------------------------------------------------------------------
 R=$'\e[1;35m'   # Magenta
 C=$'\e[1;36m'   # Cyan
@@ -51,13 +51,13 @@ die()  { echo -e "${D}FATAL: $*${N}" | tee -a "$LOG" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die "Run As Root — Boot The Custom ISO And Log In As The Live User."
 grep -qs 'Artix' /etc/os-release || die "This Installer Must Run On Artix Linux."
 
-# The custom ISO is the only supported install path; refuse anything else.
+# The Custom ISO Is the Only Supported Install Path; Refuse Anything Else.
 if [ ! -e /run/live ] && ! grep -qs 'boot=live' /proc/cmdline; then
   die "Not Running From The Custom ISO Live Environment. Boot The ISO Built By This Repo."
 fi
 
 # ----------------------------------------------------------------------------
-# Dependencies (Only What A Bare Artix ISO Lacks)
+# Dependencies (Only What a Bare Artix ISO Lacks)
 # ----------------------------------------------------------------------------
 ensure_deps() {
   step "Checking Dependencies"
@@ -71,6 +71,97 @@ ensure_deps() {
   fi
   for c in whiptail sgdisk pacstrap arch-chroot genfstab; do
     command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Arch-Install-Scripts First."
+  done
+}
+
+# ----------------------------------------------------------------------------
+# Network (Wi-Fi Selection Or Skip If Already Online)
+# ----------------------------------------------------------------------------
+setup_network() {
+  step "Checking Network Connectivity"
+
+  # Online Already (Ethernet Or Prior Connection)? Offer Skip.
+  if ping -c1 -W3 geo-mirror.chaotic.cx >/dev/null 2>&1; then
+    if whiptail --yesno --defaultyes "Network Is Already Online. Skip Wi-Fi Setup?" 10 55 \
+       --title "Artix — Network" 3>&1 1>&2 2>&3; then
+      return 0
+    fi
+  fi
+
+  command -v nmcli >/dev/null 2>&1 || die "nmcli Unavailable — The Live ISO Should Ship NetworkManager."
+
+  while :; do
+    step "Scanning For Wi-Fi Networks"
+    # Trigger a Fresh Scan; Ignore Failure (Driver May Refuse While Up).
+    nmcli device wifi rescan >/dev/null 2>&1 || true
+    sleep 2
+
+    local -a nets=() line ssid sig sec
+    local -A open_net=()                            # SSID → "Open" Marker
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      sig="${line%%:*}";   line="${line#*:}"
+      ssid="${line%%:*}";  line="${line#*:}"
+      sec="${line%%:*}"
+      [ -z "$ssid" ] && continue                    # Hidden SSIDs Need Manual Entry
+      # Unescape nmcli's Terse-Mode Colons (\:) So the Menu Shows Real Names.
+      ssid="${ssid//\\:/:}"
+      sec="${sec//\\:/:}"
+      if [ "$sec" = "--" ]; then
+        sec="Open"
+        open_net["$ssid"]=1
+      else
+        sec="Secured ($sec)"
+      fi
+      nets+=("$ssid" "$(printf '%-4s %-38s %s' "$sig" "$ssid" "$sec")")
+    done < <(nmcli -t -f SIGNAL,SSID,SECURITY device wifi list 2>/dev/null \
+             | sort -t: -k1,1rn | awk -F: '!seen[$2]++')
+
+    if [ ${#nets[@]} -eq 0 ]; then
+      whiptail --msgbox "No Wi-Fi Networks Found.\n\nMake Sure the Adapter Isn't rfkill-Blocked\n(Run: rfkill unblock all) And Try Again." 12 60 \
+        --title "Artix — Wi-Fi" 3>&1 1>&2 2>&3 || return 1
+      continue
+    fi
+
+    # Menu Height Caps at 24 Rows; whiptail Scrolls Longer Lists Internally.
+    local menu_height=$(( ${#nets[@]} / 2 > 24 ? 24 : ${#nets[@]} / 2 ))
+    local WIFI_SSID
+    WIFI_SSID=$(whiptail --menu "Wi-Fi Networks (Strongest Signal First):" 28 78 "$menu_height" \
+      "${nets[@]}" \
+      --extra-button --extra-label "Rescan" \
+      --title "Artix — Wi-Fi" 3>&1 1>&2 2>&3)
+    local rc=$?
+    if [ $rc -eq 1 ]; then return 0; fi              # Cancel → Ethernet Path
+    if [ $rc -eq 3 ]; then continue; fi              # Rescan Button
+
+    # Open Networks Skip the Password Prompt. Bail Out If the Menu Returned
+    # Nothing (Shouldn't Happen — whiptail Cancels Are Handled Above).
+    local psk=""
+    if [ -z "$WIFI_SSID" ]; then
+      continue
+    elif [ -z "${open_net[$WIFI_SSID]:-}" ]; then
+      while :; do
+        psk=$(whiptail --passwordbox "Password For \"$WIFI_SSID\":" 10 60 "" \
+          --title "Artix — Wi-Fi Password" 3>&1 1>&2 2>&3) || { psk=""; break; }
+        [ ${#psk} -ge 8 ] || { whiptail --msgbox "Password Must Be At Least 8 Characters (WPA)." 9 50; continue; }
+        break
+      done
+      [ -z "$psk" ] && continue                      # Escaped Password Prompt → Back to List
+    fi
+
+    step "Connecting To $WIFI_SSID"
+    if [ -n "$psk" ]; then
+      nmcli device wifi connect "$WIFI_SSID" password "$psk" >>"$LOG" 2>&1 || true
+    else
+      nmcli device wifi connect "$WIFI_SSID" >>"$LOG" 2>&1 || true
+    fi
+
+    if ping -c1 -W5 geo-mirror.chaotic.cx >/dev/null 2>&1; then
+      log "Wi-Fi Connected: $WIFI_SSID"
+      return 0
+    fi
+    whiptail --msgbox "Connection Failed Or No Internet.\nCheck the Password And Try Again." 10 55 \
+      --title "Artix — Wi-Fi" 3>&1 1>&2 2>&3
   done
 }
 
@@ -108,6 +199,80 @@ ask_questions() {
     [ -n "$USER_PW" ] && [ "$USER_PW" = "$USER_PW2" ] && break
     whiptail --msgbox "Passwords Empty Or Do Not Match." 8 45
   done
+
+  # Locale: Curated UTF-8 Shortlist (Same Hand-Built Style As the Timezone
+  # List). The ISO's Active Locale Is Preselected; en_US Is Always Generated
+  # As a Floor Later, So a Bad Pick Can't Break Boot.
+  local -a locales=()
+  locales+=(
+    "en_US.UTF-8" "English (US)" \
+    "en_GB.UTF-8" "English (UK)" \
+    "de_DE.UTF-8" "German" \
+    "fr_FR.UTF-8" "French" \
+    "es_ES.UTF-8" "Spanish" \
+    "it_IT.UTF-8" "Italian" \
+    "nl_NL.UTF-8" "Dutch" \
+    "da_DK.UTF-8" "Danish" \
+    "sv_SE.UTF-8" "Swedish" \
+    "nb_NO.UTF-8" "Norwegian" \
+    "fi_FI.UTF-8" "Finnish" \
+    "is_IS.UTF-8" "Icelandic" \
+    "pl_PL.UTF-8" "Polish" \
+    "cs_CZ.UTF-8" "Czech" \
+    "hu_HU.UTF-8" "Hungarian" \
+    "ro_RO.UTF-8" "Romanian" \
+    "bg_BG.UTF-8" "Bulgarian" \
+    "el_GR.UTF-8" "Greek" \
+    "tr_TR.UTF-8" "Turkish" \
+    "uk_UA.UTF-8" "Ukrainian" \
+    "ru_RU.UTF-8" "Russian" \
+    "lv_LV.UTF-8" "Latvian" \
+    "lt_LT.UTF-8" "Lithuanian" \
+    "et_EE.UTF-8" "Estonian" \
+    "pt_PT.UTF-8" "Portuguese" \
+    "pt_BR.UTF-8" "Brazilian Portuguese" \
+    "ca_ES.UTF-8" "Catalan" \
+    "eu_ES.UTF-8" "Basque" \
+    "ja_JP.UTF-8" "Japanese" \
+    "ko_KR.UTF-8" "Korean" \
+    "zh_CN.UTF-8" "Chinese (Simplified)" \
+    "zh_TW.UTF-8" "Chinese (Traditional)" \
+  )
+  local iso_loc
+  iso_loc=$(locale | grep -oP 'LANG=\K\S+' | head -1 || true)
+  local -a loc_opts=()
+  if [ -n "$iso_loc" ]; then
+    local _l
+    for _l in "${locales[@]}"; do
+      [ "$_l" = "$iso_loc" ] && { loc_opts=(--default-item "$iso_loc"); break; }
+    done
+  fi
+  local loc_menu_height=$(( ${#locales[@]} / 2 > 24 ? 24 : ${#locales[@]} / 2 ))
+  LOCALE=$(whiptail "${loc_opts[@]}" --menu "System Language (Locale):" 28 68 "$loc_menu_height" \
+    "${locales[@]}" \
+    --title "Artix — Language" 3>&1 1>&2 2>&3) || exit 1
+
+  # Encryption: Optional LUKS2 On the System Partition. The Disk Passphrase
+  # Is Asked Once At Boot (Initramfs Unlock — GRUB Can't Do LUKS2/Argon2id
+  # Natively). Swap Moves Inside the Encrypted Volume As a Btrfs Swapfile,
+  # So It's Encrypted Too.
+  ENCRYPT=$(whiptail --yesno --defaultyes \
+    "Encrypt The System Partition (LUKS2)?" 10 50 \
+    --title "Artix — Encryption" 3>&1 1>&2 2>&3) && ENCRYPT=yes || ENCRYPT=no
+  if [ "$ENCRYPT" = yes ]; then
+    while :; do
+      LUKS_PW=$(whiptail --passwordbox "Disk Passphrase (Asked Once At Boot):" 10 60 "" \
+        --title "Artix — LUKS Passphrase" 3>&1 1>&2 2>&3) || exit 1
+      LUKS_PW2=$(whiptail --passwordbox "Repeat Passphrase:" 10 60 "" 3>&1 1>&2 2>&3) || exit 1
+      [ -n "$LUKS_PW" ] && [ "$LUKS_PW" = "$LUKS_PW2" ] && break
+      whiptail --msgbox "Passphrases Empty Or Do Not Match." 8 45
+    done
+  fi
+
+  # Firewall: ufw Enabled At Boot, Default Deny Incoming / Allow Outgoing.
+  ENABLE_UFW=$(whiptail --yesno --defaultyes \
+    "Enable ufw Firewall?\n(Deny Incoming, Allow Outgoing)" 10 50 \
+    --title "Artix — Firewall" 3>&1 1>&2 2>&3) && ENABLE_UFW=yes || ENABLE_UFW=no
 
   # Zone list: one entry per country plus split regions where a country
   # spans several zones. Validated against /usr/share/zoneinfo at build time.
@@ -196,13 +361,13 @@ ask_questions() {
     "UTC"                 "UTC" \
   )
 
-  # Menu height caps at 24 rows; whiptail scrolls longer lists internally.
+  # Menu Height Caps at 24 Rows; whiptail Scrolls Longer Lists Internally.
   local menu_height=$(( ${#zones[@]} / 2 > 24 ? 24 : ${#zones[@]} / 2 ))
   TIMEZONE=$(whiptail --menu "Location (Timezone):" 28 68 "$menu_height" \
     "${zones[@]}" \
     --title "Artix — Timezone" 3>&1 1>&2 2>&3) || exit 1
 
-  # Pull The Keymap From The ISO Environment So The Console Matches The Install Medium
+  # Pull The Keymap From the ISO Environment So the Console Matches the Install Medium
   KEYMAP=$(sed -n 's/^KEYMAP="\?//p' /etc/vconsole.conf 2>/dev/null | tr -d '"' || true)
   KEYMAP="${KEYMAP:-us}"
 }
@@ -229,14 +394,23 @@ select_disk() {
   size=$(lsblk -dn -o SIZE "$DISK")
   model=$(lsblk -dn -o MODEL "$DISK" | xargs)
 
+  local layout="  1  EFI System   512 MiB  FAT32  BOOT
+  2  Linux Swap     4 GiB         Swap
+  3  Linux Root   Rest     Btrfs  System  (@ And @home Subvolumes)"
+  [ "$ENCRYPT" = yes ] && layout="  1  EFI System   512 MiB  FAT32  BOOT (Unencrypted)
+  2  Linux Root   Rest     LUKS2  cryptsystem
+     └ Btrfs     Rest            System  (@ And @home Subvolumes, Encrypted Swapfile)"
+
   whiptail --title "Artix — Final Confirmation" --yesno --defaultno \
 "This Will Erase $DISK ($model, $size) And Install Artix:
 
-  1  EFI System   512 MiB  FAT32  BOOT
-  2  Linux Swap     4 GiB         Swap
-  3  Linux Root   Rest     Btrfs  System  (@ And @home Subvolumes)
+$layout
 
-Proceed?" 16 70 || { log "Aborted At Confirmation."; exit 1; }
+$( [ "$ENCRYPT" = yes ] && echo "LUKS2 Encryption: ON — Disk Passphrase At Boot." || echo "LUKS2 Encryption: OFF." )
+$( [ "$ENABLE_UFW" = yes ] && echo "Firewall: ufw ON (Deny Incoming)." || echo "Firewall: ufw OFF." )
+Locale: $LOCALE    Timezone: $TIMEZONE
+
+Proceed?" 18 70 || { log "Aborted At Confirmation."; exit 1; }
 }
 
 # ----------------------------------------------------------------------------
@@ -249,9 +423,16 @@ partition_disk() {
   sync
 
   sgdisk --zap-all "$DISK" >>"$LOG" 2>&1
-  sgdisk -n 1:0:+512M   -t 1:ef00 -c 1:BOOT   "$DISK" >>"$LOG" 2>&1
-  sgdisk -n 2:0:+4G     -t 2:8200 -c 2:Swap   "$DISK" >>"$LOG" 2>&1
-  sgdisk -n 3:0:0       -t 3:8300 -c 3:System "$DISK" >>"$LOG" 2>&1
+  if [ "$ENCRYPT" = yes ]; then
+    # Two Partitions: EFI + One Encrypted Container. Swap Becomes a Btrfs
+    # Swapfile Inside the Encrypted Volume — Encrypted With Everything Else.
+    sgdisk -n 1:0:+512M -t 1:ef00 -c 1:BOOT "$DISK" >>"$LOG" 2>&1
+    sgdisk -n 2:0:0     -t 2:8304 -c 2:cryptsystem "$DISK" >>"$LOG" 2>&1
+  else
+    sgdisk -n 1:0:+512M -t 1:ef00 -c 1:BOOT "$DISK" >>"$LOG" 2>&1
+    sgdisk -n 2:0:+4G   -t 2:8200 -c 2:Swap "$DISK" >>"$LOG" 2>&1
+    sgdisk -n 3:0:0     -t 3:8300 -c 3:System "$DISK" >>"$LOG" 2>&1
+  fi
   partx -a "$DISK" >>"$LOG" 2>&1 || true   # Ensure Partition Nodes Exist
   # Fallback For Environments Where udev Doesn't Populate Partition Nodes (Rare)
   local _p _node _mj _mn
@@ -262,15 +443,24 @@ partition_disk() {
     mknod "$_p" b "$_mj" "$_mn" 2>/dev/null || true
   done
 
-  log "Formatting"
   local part1 part2 part3
   if [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]]; then
     part1="${DISK}p1"; part2="${DISK}p2"; part3="${DISK}p3"
   else
     part1="${DISK}1"; part2="${DISK}2"; part3="${DISK}3"
   fi
-  mkfs.fat -F32 -n BOOT   "$part1" >>"$LOG" 2>&1
-  mkswap -L Swap          "$part2" >>"$LOG" 2>&1
+
+  mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1
+
+  if [ "$ENCRYPT" = yes ]; then
+    log "Encrypting $part2 (LUKS2, Argon2id)"
+    printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
+      --pbkdf argon2id --batch-mode "$part2" >>"$LOG" 2>&1
+    log "Opening LUKS Container"
+    printf '%s' "$LUKS_PW" | cryptsetup open "$part2" cryptsystem >>"$LOG" 2>&1
+    part3="/dev/mapper/cryptsystem"
+  fi
+
   mkfs.btrfs -f -L System "$part3" >>"$LOG" 2>&1
 
   log "Creating Btrfs Subvolumes @ And @home"
@@ -281,21 +471,34 @@ partition_disk() {
 
   log "Mounting"
   mount -o subvol=/@,compress=zstd "$part3" $MNT
-  mkdir -p /mnt/boot /mnt/home
+  mkdir -p /mnt/boot /mnt/home /mnt/swap
   mount "$part1" /mnt/boot
   mount -o subvol=/@home,compress=zstd "$part3" /mnt/home
-  swapon "$part2"
+
+  if [ "$ENCRYPT" = yes ]; then
+    # 4 GiB Encrypted Swapfile (mkswapfile Sets NOCOW — Required For swapon)
+    log "Creating 4 GiB Encrypted Swapfile"
+    btrfs filesystem mkswapfile --size 4g --uuid clear /mnt/swap/swapfile >>"$LOG" 2>&1
+    [ -s /mnt/swap/swapfile ] || die "Swapfile Creation Failed — See $LOG."
+    chmod 0600 /mnt/swap/swapfile
+    swapon /mnt/swap/swapfile || die "swapon Failed For Encrypted Swapfile — See $LOG."
+    SWAPFILE=/swap/swapfile
+  else
+    mkswap -L Swap "$part2" >>"$LOG" 2>&1
+    swapon "$part2"
+  fi
 }
 
 # ----------------------------------------------------------------------------
 # Target System
+# ----------------------------------------------------------------------------
 write_keyfiles() {
   step "Writing System Key Files"
   mkdir -p /mnt/etc
   printf '%s\n' "$HOSTNAME" > /mnt/etc/hostname
   cat > /mnt/etc/hosts <<EOF
 127.0.0.1  localhost
-::1        localhost
+:::1        localhost
 127.0.1.1  $HOSTNAME.localdomain $HOSTNAME
 EOF
   cat > /mnt/etc/vconsole.conf <<EOF
@@ -304,18 +507,27 @@ EOF
   ln -sf "/usr/share/zoneinfo/$TIMEZONE" /mnt/etc/localtime
   echo "KEYMAP=${KEYMAP:-us}" > /etc/vconsole.conf
 
-  # Locales: Enable The ISO's Active Locale Plus en_US As A Floor
-  # (Runs Pre-pacstrap In The Dry-Run; locale.gen May Not Exist Yet — pacstrap
-  # Regenerates It, And The en_US Default Below Holds Either Way)
-  local iso_locale
-  iso_locale=$(locale | grep -oP 'LANG=\K\S+' | head -1 || true)
-  if [ -f /mnt/etc/locale.gen ]; then
-    sed -i '/^#en_US.UTF-8 UTF-8/s/^#//' /mnt/etc/locale.gen
-    if [ -n "${iso_locale:-}" ] && ! grep -qs "^${iso_locale%%.*} " /mnt/etc/locale.gen; then
-      echo "${iso_locale} UTF-8" >> /mnt/etc/locale.gen
-    fi
+  # Locale: Written To the Target Now; locale.gen Un-commented and locale-gen
+  # Runs Post-pacstrap (The Target File Only Exists After glibc Installs).
+  echo "LANG=$LOCALE" > /mnt/etc/locale.conf
+  # Post-pacstrap, In Target: Enable the Picked Locale Plus en_US As a Floor.
+  POST_LOCALE_GEN='
+sed -i "s/^#@LOCALE@ UTF-8/@LOCALE@ UTF-8/" /etc/locale.gen
+sed -i "s/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/" /etc/locale.gen
+grep -qs "^@LOCALE@ UTF-8" /etc/locale.gen || echo "@LOCALE@ UTF-8" >> /etc/locale.gen
+locale-gen
+'
+  POST_LOCALE_GEN="${POST_LOCALE_GEN//@LOCALE@/$LOCALE}"
+
+  # LUKS: crypttab So the Root Container Is Openable Post-boot (e.g. LVM /
+  # Rescue), Though the Initramfs Hook Is the Real Unlock Path.
+  if [ "$ENCRYPT" = yes ]; then
+    local luksuuid
+    luksuuid=$(cryptsetup luksUUID "$part2")
+    echo "cryptsystem UUID=$luksuuid none luks,discard" > /mnt/etc/crypttab
+    # Initramfs Unlock Config: Ask For the Passphrase Once At Boot.
+    echo "cryptsystem UUID=$luksuuid" > /mnt/etc/crypttab.initramfs
   fi
-  echo "LANG=${iso_locale:-en_US.UTF-8}" > /mnt/etc/locale.conf
 }
 
 # ----------------------------------------------------------------------------
@@ -334,10 +546,20 @@ pacstrap_target() {
     esac
   done < "$SRC/packages/base.packages"
 
+  # Conditional Extras: LUKS (cryptsetup For crypttab + luksUUID), ufw.
+  local -a extra_pkgs=()
+  [ "$ENCRYPT" = yes ] && extra_pkgs+=(cryptsetup)
+  [ "$ENABLE_UFW" = yes ] && extra_pkgs+=(ufw ufw-dinit iptables)
+
   pacman -Sy archlinux-keyring artix-keyring >>"$LOG" 2>&1 || true
   pacstrap -K $MNT base base-devel linux linux-firmware linux-headers \
-    grub efibootmgr os-prober mkinitcpio btrfs-progs dosfstools "${base_pkgs[@]}" \
+    grub efibootmgr os-prober mkinitcpio btrfs-progs dosfstools \
+    "${extra_pkgs[@]}" "${base_pkgs[@]}" \
     >>"$LOG" 2>&1
+
+  # Locale: The Target's locale.gen Now Exists — Enable Pick + en_US, Generate.
+  step "Generating Locale $LOCALE"
+  arch-chroot $MNT bash -c "POST_LOCALE_GEN=$(printf '%q' "$POST_LOCALE_GEN"); eval \"\$POST_LOCALE_GEN\""
 
   # Chaotic-AUR (For ungoogled-chromium-bin, papirus-folders)
   cat >> /mnt/etc/pacman.conf <<'EOF'
@@ -350,7 +572,7 @@ EOF
   if ! grep -qs '^\[extra\]' /mnt/etc/pacman.conf; then
     cat >> /mnt/etc/pacman.conf <<'EOF'
 
-# Last-Ditch: Arch Extra, Used Only For Packages Artix And Chaotic Lack.
+# Last-Ditch: Arch Extra, Used Only for Packages Artix and Chaotic Lack.
 [extra]
 SigLevel = PackageRequired
 Include = /etc/pacman.d/arch-mirrorlist
@@ -358,7 +580,7 @@ EOF
   fi
   [ -f /etc/pacman.d/arch-mirrorlist ] && cp /etc/pacman.d/arch-mirrorlist /mnt/etc/pacman.d/ || true
 
-  # Desktop Packages (hyprland, waybar, alacritty, greetd, browsers, ...)
+  # Desktop Packages (hyprland, waybar, alacritty, sddm, browsers, ...)
   step "Installing Desktop Packages"
   local -a desk_pkgs=()
   while IFS= read -r line; do
@@ -376,15 +598,22 @@ make_fstab() {
   mkdir -p /mnt/etc
   genfstab -U $MNT > /mnt/etc/fstab
 
-  # genfstab Can Pick Up The ISO's Own Swap Entry; Keep Only Target-Disk Lines
-  local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* ]] && swappart="${DISK}p2"
-  local swapuuid
-  swapuuid=$(lsblk -no UUID "$swappart")
-  grep -v 'swap' /mnt/etc/fstab > /tmp/fstab.clean
-  echo "UUID=$swapuuid none swap defaults 0 0" >> /tmp/fstab.clean
-  mv /tmp/fstab.clean /mnt/etc/fstab
+  # genfstab Can Pick Up the ISO's Own Swap Entry; Keep Only Target-Disk Lines
+  if [ "$ENCRYPT" = yes ]; then
+    # Swapfile Lives On the Encrypted Btrfs; Plain Directory On the Root Subvol.
+    grep -v 'swap' /mnt/etc/fstab > /tmp/fstab.clean
+    echo "/swap/swapfile none swap defaults 0 0" >> /tmp/fstab.clean
+    mv /tmp/fstab.clean /mnt/etc/fstab
+  else
+    local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* ]] && swappart="${DISK}p2"
+    local swapuuid
+    swapuuid=$(lsblk -no UUID "$swappart")
+    grep -v 'swap' /mnt/etc/fstab > /tmp/fstab.clean
+    echo "UUID=$swapuuid none swap defaults 0 0" >> /tmp/fstab.clean
+    mv /tmp/fstab.clean /mnt/etc/fstab
+  fi
 
-  # Normalize Btrfs Options: Add Compression, Keep Subvol
+  # Normalize Btrfs Options: Add Compression, Keep subvol
   grep -qs 'compress=zstd' /mnt/etc/fstab || \
     sed -i -E 's|(btrfs[^\n]*subvol=)|\1compress=zstd,|' /mnt/etc/fstab
   log "fstab:"
@@ -395,7 +624,7 @@ configure_users() {
   step "Creating Users"
   printf '%s\n' "$ROOT_PW" "$ROOT_PW" | arch-chroot $MNT passwd root >/dev/null
 
-  # Login Shell: zsh For The User, root Keeps bash
+  # Login Shell: zsh For the User, root Keeps bash
   arch-chroot $MNT useradd -m -G wheel -s /bin/zsh -c "$REALNAME" "$USERNAME"
   printf '%s\n' "$USER_PW" "$USER_PW" | arch-chroot $MNT passwd "$USERNAME" >/dev/null
 
@@ -411,26 +640,46 @@ configure_users() {
     arch-chroot $MNT groupadd -f wheel
   fi
 
-  # /bin/sh: dash (POSIX-Fast), bash Stays Available For root And Scripts
+  # /bin/sh: dash (POSIX-Fast), bash Stays Available for root and Scripts
   arch-chroot $MNT ln -sfn dash /usr/bin/sh
 }
 
 install_grub() {
   step "Installing GRUB"
-  # Make Sure The Initramfs Includes btrfs
+  # Initramfs: Btrfs Always; encrypt + keyboard/keymap Hooks When the Disk Is LUKS2.
+  # encrypt Runs the Passphrase Prompt Once — No Re-entry At the Greeter.
+  if [ "$ENCRYPT" = yes ]; then
+    # encrypt Must Precede block/filesystems. keyboard+keymap Let the
+    # Initramfs Prompt Honor Non-US Keymaps (Artix Ships keyboard Already).
+    sed -i -E 's/^HOOKS=\((.*)block(.*)\)$/HOOKS=(\1keymap encrypt block\2)/' /mnt/etc/mkinitcpio.conf
+    grep -qs '^HOOKS=.*encrypt' /mnt/etc/mkinitcpio.conf || \
+      sed -i 's/^HOOKS=(\(.*\))/HOOKS=(\1 keyboard keymap encrypt)/' /mnt/etc/mkinitcpio.conf
+    grep -qs '^HOOKS=.*keymap' /mnt/etc/mkinitcpio.conf || \
+      sed -i 's/^HOOKS=\((.*)encrypt\)/HOOKS=(\1keymap encrypt)/' /mnt/etc/mkinitcpio.conf
+  fi
   sed -i 's/^MODULES=()/MODULES=(btrfs)/' /mnt/etc/mkinitcpio.conf
   grep -qs '^MODULES=.*btrfs' /mnt/etc/mkinitcpio.conf || \
     sed -i 's/^MODULES=(\(.*\))/MODULES=(btrfs \1)/' /mnt/etc/mkinitcpio.conf
-  arch-chroot $MNT mkinitcpio -P >>"$LOG" 2>&1
 
-  arch-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
-    --bootloader-id=Artix --recheck >>"$LOG" 2>&1
-  arch-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
+  if [ "$ENCRYPT" = yes ]; then
+    local luksuuid
+    luksuuid=$(cryptsetup luksUUID "$part2")
+    arch-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
+      --bootloader-id=Artix --recheck >>"$LOG" 2>&1
+    # Kernel Cmdline Points the encrypt Hook At the Container By UUID.
+    sed -i "s|GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luksuuid:cryptsystem root=/dev/mapper/cryptsystem\"|" \
+      /mnt/etc/default/grub
+    arch-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
+  else
+    arch-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
+      --bootloader-id=Artix --recheck >>"$LOG" 2>&1
+    arch-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
+  fi
 }
 
 enable_services() {
   step "Enabling Services (dinit)"
-  for svc in NetworkManager bluetoothd avahi-daemon sshd cronie greetd userspawn; do
+  for svc in NetworkManager bluetoothd avahi-daemon sshd cronie sddm userspawn; do
     if [ -e "/mnt/etc/dinit.d/$svc" ]; then
       ln -sfn "/mnt/etc/dinit.d/$svc" "/mnt/etc/dinit.d/boot.d/$svc" 2>/dev/null || true
     fi
@@ -449,11 +698,12 @@ enable_services() {
   [ -f /mnt/var/lib/dbus/machine-id ] && [ ! -f /mnt/etc/machine-id ] && \
     cp /mnt/var/lib/dbus/machine-id /mnt/etc/machine-id || true
 }
+
 # ----------------------------------------------------------------------------
 # Desktop Config Layer
 # ----------------------------------------------------------------------------
 deploy_configs() {
-  # The Config Layer Ships Inside The Custom ISO
+  # The Config Layer Ships Inside the Custom ISO
   [ -d "$SRC/conf" ] || die "Config Layer Missing From The ISO — Rebuild It."
 
   step "Deploying Desktop Configs"
@@ -474,14 +724,37 @@ deploy_configs() {
 
   chown -R "$(stat -c %u "$u_home")":"$(stat -c %g "$u_home")" "$u_home/.config" "$u_home/.local/bin" "$u_home/.vimrc" "$u_home/.zshrc"
 
-  install -Dm644 "$SRC"/system/greetd/config.toml /mnt/etc/greetd/config.toml
-  install -Dm644 "$SRC"/system/greetd/pam-greetd    /mnt/etc/pam.d/greetd
+  # SDDM: Bundled Overrides + Arc Dark Theme (Replaces the Stock Configs)
+  install -Dm644 "$SRC"/system/sddm/sddm.conf /mnt/etc/sddm.conf.d/danelos.conf
+  mkdir -p /mnt/usr/share/sddm/themes/arc-dark
+  cp -r "$SRC"/system/sddm/themes/arc-dark/. /mnt/usr/share/sddm/themes/arc-dark/
 
   install -d /mnt/usr/share/backgrounds
   cp "$SRC"/wallpapers/*.jpg /mnt/usr/share/backgrounds/
 
   # Dark Folders For Papirus Icons
   arch-chroot $MNT sudo -u "$USERNAME" papirus-folders -C ePapirus-Dark --theme Papirus-Dark >/dev/null 2>&1 || true
+}
+
+configure_firewall() {
+  [ "$ENABLE_UFW" = yes ] || return 0
+  step "Configuring ufw Firewall"
+  # Defaults: Deny Incoming, Allow Outgoing, Deny Routed. IPv6 On.
+  sed -i 's/^ENABLED=no/ENABLED=yes/' /mnt/etc/ufw/ufw.conf
+  sed -i 's/^IPV6=no/IPV6=yes/' /mnt/etc/default/ufw
+  # Seed the Rules File With the Default Policy (ufw-dinit Runs `ufw enable`
+  # At Boot, Which Reloads These).
+  arch-chroot $MNT ufw --force reset >>"$LOG" 2>&1 || true
+  arch-chroot $MNT ufw default deny incoming >>"$LOG" 2>&1
+  arch-chroot $MNT ufw default allow outgoing >>"$LOG" 2>&1
+  # Loopback + NetworkManager DHCP/RA Must Never Be Blocked.
+  arch-chroot $MNT ufw allow in on lo >>"$LOG" 2>&1
+  arch-chroot $MNT ufw allow out on lo >>"$LOG" 2>&1
+  arch-chroot $MNT ufw allow in proto udp from any port 67 to any port 68 >>"$LOG" 2>&1
+  arch-chroot $MNT ufw allow in proto ipv6 from fe80::/10 >>"$LOG" 2>&1
+  arch-chroot $MNT ufw --force enable >>"$LOG" 2>&1
+  log "ufw Status (Chroot):"
+  arch-chroot $MNT ufw status verbose | sed 's/^/    /' | tee -a "$LOG"
 }
 
 # ----------------------------------------------------------------------------
@@ -491,18 +764,30 @@ finish() {
   step "Unmounting"
   sync
   umount -R /mnt 2>/dev/null || true
-  local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* ]] && swappart="${DISK}p2"
-  swapoff "$swappart" 2>/dev/null || true
+  if [ "$ENCRYPT" = yes ]; then
+    swapoff /swap/swapfile 2>/dev/null || true
+    cryptsetup close cryptsystem 2>/dev/null || true
+  else
+    local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* ]] && swappart="${DISK}p2"
+    swapoff "$swappart" 2>/dev/null || true
+  fi
+
+  local enc_note="LUKS2:      OFF"
+  [ "$ENCRYPT" = yes ] && enc_note="LUKS2:      ON — Disk Passphrase Asked Once At Boot"
+  local fw_note="Firewall:   ufw OFF"
+  [ "$ENABLE_UFW" = yes ] && fw_note="Firewall:   ufw ON — All Incoming Denied"
 
   whiptail --title "Artix — Done" --msgbox "Install Complete. Reboot And Remove The ISO.
 
 User:      $USERNAME
 Hostname:  $HOSTNAME
 Timezone:  $TIMEZONE
-Disk:      $DISK (BOOT/Swap/System)
+Locale:    $LOCALE
+Disk:      $DISK
+$enc_note
+$fw_note
 
-Greeter → Login → Hyprland. Enjoy The Freedom." 15 60
-  log "Done. Reboot To Be Greeted."
+Greeter → Login → Hyprland. Enjoy the Freedom." 17 60
 }
 
 # ============================================================================
@@ -510,16 +795,16 @@ main() {
   banner
   : > "$LOG"
   ensure_deps
+  setup_network
   ask_questions
   select_disk
   partition_disk
   write_keyfiles
   pacstrap_target
   make_fstab
-  configure_users
-  install_grub
   enable_services
   deploy_configs
+  configure_firewall
   finish
 }
 

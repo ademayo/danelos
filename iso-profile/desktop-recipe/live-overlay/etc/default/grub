@@ -1,6 +1,6 @@
-# This file is part of the desktop recipe live ISO.
-# Live session user is configured by artools; installed systems get their own
-# user from the installer script.
+# This File Is Part of the Desktop Recipe Live ISO.
+# Live Session User Is Configured by artools; Installed Systems Get Their Own
+# User from the Installer Script.
 
 GRUB_TIMEOUT="3"
 GRUB_DISTRIBUTOR="Artix"

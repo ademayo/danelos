@@ -1,4 +1,4 @@
-# -*- vim -*-
+# -*- Vim -*-
 " Vim Defaults — Modern Baseline Without Plugins
 set nocompatible
 set encoding=utf-8

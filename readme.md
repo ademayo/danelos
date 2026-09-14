@@ -14,7 +14,7 @@ with stock session entries and bootloader settings throughout.
 | ---------- | ------------------------------------------------------------- |
 | Base       | Artix Linux, dinit init, elogind, userspawn                     |
 | Compositor | Hyprland (with hypridle, hyprlock, hyprpaper, hyprshot)        |
-| Login      | greetd + tuigreet (console greeter)                            |
+| Login      | SDDM (Qt6/QML greeter on Wayland via Weston kiosk, bundled Arc Dark theme) |
 | Launchers  | rofi (`Ctrl+Space`, also `Alt+Space` / `Super+D`)              |
 | Terminal   | alacritty (`Ctrl+Alt+T` or `Super+Return`)                     |
 | Browsers   | ungoogled-chromium, librewolf                                  |
@@ -27,6 +27,9 @@ with stock session entries and bootloader settings throughout.
 | Fonts      | CaskaydiaCove Nerd Font (mono), Adwaita Sans (UI)              |
 | Audio      | pipewire + wireplumber + pipewire-pulse (dinit user services), pavucontrol-qt mixer |
 | Power/lock | wlogout menu, hyprlock, hypridle (10/15/30 min timeouts)       |
+| Language   | 30-locale picker at install time (ISO locale preselected)      |
+| Encryption | Optional LUKS2 (Argon2id) on the System partition; swap lives inside the encrypted volume as a Btrfs swapfile; one passphrase at boot |
+| Firewall   | Optional ufw (dinit service) — default deny incoming, allow outgoing |
 
 Everything else stays deliberately minimal.
 
@@ -52,7 +55,7 @@ can also be triggered manually via `workflow_dispatch`.
 
 The ISO profile lives in `iso-profile/desktop-recipe/` — a standard artools
 profile (`profile.yaml` plus a `live-overlay/` tree) that installs the
-Hyprland stack, greetd with tuigreet, the dinit service set, and ships the
+Hyprland stack, SDDM with a bundled Arc Dark theme, the dinit service set, and ships the
 installer at `/root/desktop-recipe/installer/recipe` inside the live session.
 
 A GitHub Pages site under `docs/` mirrors this readme as a landing page;
@@ -73,8 +76,11 @@ anywhere else.
 sudo ./installer/recipe
 ```
 
-The installer asks only for hostname, name, username, root/user passwords and
-timezone, then partitions the selected disk as:
+The installer asks for hostname, name, username, root/user passwords, system
+language, timezone, and whether to enable LUKS2 encryption and the ufw
+firewall, then partitions the selected disk as:
+
+Unencrypted:
 
 | # | Partition | Size     | FS     | Label  |
 |---|-----------|----------|--------|--------|
@@ -82,9 +88,18 @@ timezone, then partitions the selected disk as:
 | 2 | Swap      | 4 GiB    | swap   | Swap   |
 | 3 | Root      | rest     | Btrfs  | System (subvolumes `@` + `@home`) |
 
+Encrypted (LUKS2, Argon2id):
+
+| # | Partition | Size     | FS     | Label  |
+|---|-----------|----------|--------|--------|
+| 1 | EFI       | 512 MiB  | FAT32  | BOOT (unencrypted) |
+| 2 | System    | rest     | LUKS2 → Btrfs | cryptsystem (subvolumes `@` + `@home`, 4 GiB swapfile inside) |
+
 Then it pacstraps Artix + dinit, installs the desktop, creates the user
 (wheel/audio/video/storage + friends, sudo enabled), installs GRUB and
-configures the Hyprland session via greetd.
+configures the Hyprland session via SDDM. With encryption on, the disk
+passphrase is asked once at boot (initramfs `encrypt` hook) — the greeter
+does not re-ask it.
 
 ## Keyboard Shortcuts
 
@@ -117,7 +132,7 @@ desktop-recipe/
 ├── iso-profile/
 │   └── desktop-recipe/         # artools profile for the GitHub Actions ISO build
 ├── system/
-│   └── greetd/                 # config.toml (tuigreet theme), PAM config
+│   └── sddm/                   # sddm.conf (Wayland greeter), themes/arc-dark (QML theme)
 ├── conf/
 │   ├── hypr/                   # hyprland.conf, autostart, monitors, hypridle, hyprlock, hyprpaper
 │   ├── waybar/                 # config.jsonc + style.css
@@ -140,7 +155,7 @@ Enabled via `boot.d` symlinks by the installer:
 - `avahi-daemon` (avahi-dinit)
 - `sshd` (openssh-dinit)
 - `cronie` (cronie-dinit)
-- `greetd` (greetd-dinit) — login manager (tuigreet greeter)
+- `sddm` (sddm-dinit) — login manager (Qt6/QML greeter on Weston kiosk)
 - `userspawn` (userspawn-dinit) — starts `dinit --user` on login
 
 User services (via userspawn): `dbus`, `pipewire`, `pipewire-pulse`,
@@ -148,12 +163,15 @@ User services (via userspawn): `dbus`, `pipewire`, `pipewire-pulse`,
 
 ## Notes
 
-- greetd runs tuigreet directly on the console (KMS/DRM). Its `--cmd Hyprland`
-  default launches the stock Hyprland session; any installed wayland-sessions
-  entry is selectable from the session menu (F3).
-- Theme colors in `system/greetd/config.toml` match Arc Dark
-  (`#2b2e34` container, `#5294e2` steel-blue accent). Preview tweaks with
-  `tuigreet --mock` from a TTY.
+- SDDM greeter runs its own Weston kiosk compositor (Wayland, no X server
+  anywhere in the boot path); the Hyprland session starts per-user after
+  login. Sessions come from `/usr/share/wayland-sessions` — any installed
+  entry is selectable in the greeter's session dropdown.
+- Greeter theme: bundled `system/sddm/themes/arc-dark` QML, palette-matched
+  to the desktop (`#2b2e34` card, `#5294e2` steel-blue accent, `#383c43`
+  fields). Overrides live in `/etc/sddm.conf.d/danelos.conf`.
+- ufw firewall (optional at install): default deny incoming / allow
+  outgoing, IPv6 on, loopback + DHCP exempt. Enabled at boot by `ufw-dinit`.
 - Wallpapers are from Pexels (free license, see `wallpapers/ATTRIBUTION.txt`).
 - To change wallpaper: edit `~/.config/hypr/hyprpaper.conf` (and
   `~/.config/hypr/hyprlock.conf`), or swap `moraine-lake.jpg` for a different

@@ -24,8 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Site must be enabled once in repo Settings > Pages with Source:
-      # "GitHub Actions" (GITHUB_TOKEN cannot create Pages sites:
+      # Site Must Be Enabled once in Repo Settings > Pages with Source:
+      # "GitHub Actions" (GITHUB_TOKEN Cannot Create Pages Sites:
       # actions/configure-pages#40). configure-pages only reads metadata.
       - name: Setup Pages
         id: pages-setup
@@ -35,7 +35,7 @@ jobs:
         run: |
           mkdir -p _site
           cp -r docs/. _site/
-          # readme travels with the site for completeness
+          # Readme Travels with the Site for Completeness
           cp readme.md _site/
 
       - name: Upload site

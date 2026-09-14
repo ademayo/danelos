@@ -1,5 +1,5 @@
 ---
-# Desktop Recipe ISO profile — dinit flavour (built with `buildiso -i dinit`)
+# Desktop Recipe ISO Profile — dinit Flavour (Built with `buildiso -I dinit`)
 
 live-session:
   user: "artix"
@@ -14,7 +14,7 @@ live-session:
 
 rootfs:
   packages:
-    # Compositor stack
+    # Compositor Stack
     - hyprland
     - hyprland-guiutils
     - hyprland-qt-support
@@ -28,12 +28,12 @@ rootfs:
     - xdg-desktop-portal-gtk
     - xorg-xwayland
 
-    # Bar, launcher, logout
+    # Bar, Launcher, Logout
     - waybar
     - rofi
     - wlogout
 
-    # Terminal, file manager, utilities (XFCE/MATE ecosystem, no GNOME apps)
+    # Terminal, File Manager, Utilities (XFCE/MATE Ecosystem, No GNOME Apps)
     - alacritty
     - thunar
     - thunar-archive-plugin
@@ -47,16 +47,15 @@ rootfs:
     - cliphist
     - mpv
 
-    # Everyday desktop: calculator, image viewer, PDF viewer, thumbnails
+    # Everyday Desktop: Calculator, Image Viewer, PDF Viewer, Thumbnails
     - galculator
     - ristretto
     - qpdfview
     - tumbler
 
-    # Login manager
-    - greetd
-    - greetd-tuigreet
-    - accountsservice
+    # Login Manager (SDDM; dinit Service Added Below)
+    - sddm
+    - weston
 
     # Theme
     - arc-gtk-theme
@@ -69,14 +68,14 @@ rootfs:
     - noto-fonts
     - noto-fonts-emoji
 
-    # Qt theming under Wayland
+    # Qt Theming under Wayland
     - qt5-wayland
     - qt6-wayland
     - qt6ct
     # Browsers
     - librewolf
 
-    # Base extras the desktop expects
+    # Base Extras the Desktop Expects
     - elogind
     - userspawn
 
@@ -86,7 +85,7 @@ rootfs:
       - syslog-ng-dinit
       - elogind-dinit
       - dbus-dinit
-      - greetd-dinit
+      - sddm-dinit
       - userspawn-dinit
 
 livefs:

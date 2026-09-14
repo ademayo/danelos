@@ -43,11 +43,11 @@ ristretto
 qpdfview           # Artix galaxy
 tumbler
 
-# Login Manager: greetd + tuigreet (Native Wayland/KMS Greeter, No X11)
-greetd
-greetd-tuigreet
-greetd-dinit
-accountsservice
+# Login Manager: SDDM (Qt6/QML Greeter On Wayland Via Weston Kiosk,
+# Bundled Arc Dark Theme; Hyprland Session Launched Post-login)
+sddm
+sddm-dinit
+weston
 
 # Theme: Arc Dark + Papirus + Fonts
 arc-gtk-theme
@@ -62,7 +62,7 @@ noto-fonts-emoji
 papirus-folders        # chaotic-aur
 polkit-gnome
 
-# Qt theming under Wayland
+# Qt Theming under Wayland
 qt5-wayland
 qt6-wayland
 qt5ct

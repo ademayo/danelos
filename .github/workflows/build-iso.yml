@@ -3,7 +3,7 @@ name: Build ISO
 on:
   workflow_dispatch:
 
-  # Every push to master rebuilds the ISO unconditionally.
+  # Every Push to Master Rebuilds the ISO Unconditionally.
   push:
     branches: [master]
     paths-ignore:
@@ -12,7 +12,7 @@ on:
       - "**.md"
       - ".github/workflows/deploy-pages.yml"
 
-  # On schedule: only when Artix publishes a new base-dinit release.
+  # On Schedule: Only when Artix Publishes a New base-dinit Release.
   schedule:
     - cron: "0 3 * * *"
 
@@ -43,8 +43,8 @@ jobs:
           echo "Newest Artix ISO: $version"
           echo "Trigger: ${{ github.event_name }}"
 
-          # Push events rebuild unconditionally: the tag gets overwritten so
-          # the release always tracks the newest recipe + newest Artix base.
+          # Push Events Rebuild Unconditionally: the Tag Gets Overwritten So
+          # The Release Always Tracks the Newest Recipe + Newest Artix base.
           if [ "${{ github.event_name }}" = "push" ]; then
             echo "Push event — building unconditionally."
             echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -73,12 +73,12 @@ jobs:
         run: |
           pacman -Sy --noconfirm --needed artools-base artools-iso git rsync \
             squashfs-tools grub xorriso libisoburn dosfstools mtools go-yq
-          # artools' common.yaml packages-base lists `vi`, which is now only a
-          # virtual provided by two packages (ex-vi-compat in world,
-          # ex-evi-compat in galaxy). pacman's provider selection reads stdin
-          # and hangs the container job on the open CI pipe. Pick a concrete
-          # provider instead; ex-vi-compat depends on vim, so the live ISO
-          # keeps both.
+          # Artools' common.yaml packages-base Lists `vi`, which Is Now Only A
+          # Virtual Provided by Two Packages (ex-vi-compat in World,
+          # ex-evi-compat in Galaxy). Pacman's Provider Selection Reads Stdin
+          # And Hangs the Container Job on the Open CI Pipe. Pick a Concrete
+          # Provider Instead; ex-vi-compat Depends on vim, so the Live ISO
+          # Keeps Both.
           common_yaml=/usr/share/artools/iso-profiles/common/common.yaml
           sed -i 's/^  - vi$/  - ex-vi-compat/' "$common_yaml"
           if grep -qE '^  - vi$' "$common_yaml"; then
@@ -88,14 +88,14 @@ jobs:
 
       - name: Bake The Installer Into The Live Overlay
         run: |
-          # buildiso reads profiles from ${WORKSPACE_DIR}/iso-profiles; the
-          # workspace overlays the packaged /usr/share/artools/iso-profiles.
-          # The whole repo goes into live-overlay, so the installed system's
-          # /root gets the installer plus its packages/, conf/, and
-          # wallpapers/ next to it.
-          # .gitignore excludes live-overlay/root/, so a fresh checkout has
-          # no root/ dir - rsync only creates the final destination
-          # component, not missing parents, so create it explicitly.
+          # buildiso Reads Profiles from ${WORKSPACE_DIR}/iso-profiles; The
+          # Workspace Overlays the Packaged /usr/share/artools/iso-profiles.
+          # The Whole Repo Goes into live-overlay, so the Installed System's
+          # /root Gets the Installer plus Its Packages/, conf/, And
+          # Wallpapers/ next to It.
+          # .Gitignore Excludes live-overlay/root/, so a Fresh Checkout Has
+          # No root/ Dir - rsync Only Creates the Final Destination
+          # Component, Not Missing Parents, so Create It Explicitly.
           mkdir -p iso-profile/desktop-recipe/live-overlay/root
           rsync -a --exclude iso-profile . iso-profile/desktop-recipe/live-overlay/root/desktop-recipe/
           mkdir -p ~/artools-workspace/iso-profiles
@@ -105,15 +105,15 @@ jobs:
         env:
           BUILD_VERSION: ${{ needs.check-release.outputs.version }}
         run: |
-          # no -v: this buildiso does not accept it (prints usage, exits 0,
-          # builds nothing) and the failed build still returned success,
-          # leaving iso-out empty
+          # No -v: This buildiso Does Not Accept It (Prints Usage, Exits 0,
+          # Builds Nothing) and the Failed Build Still Returned Success,
+          # Leaving ISO-Out Empty
           #
-          # The container root is an overlayfs, and mount(8) refuses overlay
-          # upperdirs on top of overlayfs ("not supported as upperdir"),
-          # which make_livefs and make_grub need. Chroots therefore live on
-          # a tmpfs (-r), and /dev/loop* nodes beyond 0/1 are created for
-          # the efiboot.img loop mount.
+          # The Container root Is an Overlayfs, and mount(8) Refuses Overlay
+          # Upperdirs on Top of Overlayfs ("Not Supported as Upperdir"),
+          # which Make_livefs and Make_grub Need. Chroots Therefore Live On
+          # A Tmpfs (-R), and /Dev/loop* Nodes beyond 0/1 Are Created For
+          # The Efiboot.img Loop mount.
           mount --mkdir -t tmpfs tmpfs /mnt/artools-tmp
           for i in $(seq 0 15); do [ -e "/dev/loop$i" ] || mknod "/dev/loop$i" b 7 "$i"; done
           set -o pipefail
@@ -180,8 +180,8 @@ jobs:
           tag_name: artix-${{ needs.check-release.outputs.version }}
           name: Artix ${{ needs.check-release.outputs.version }}
           body_path: dist/release-notes.md
-          # push builds re-tag and re-upload: assets are replaced, keeping
-          # the release always current for its Artix base version
+          # Push Builds Re-Tag and Re-Upload: Assets Are Replaced, Keeping
+          # The Release Always Current for Its Artix base Version
           make_latest: true
           overwrite_files: true
           files: |

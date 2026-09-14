@@ -1,7 +1,7 @@
 #!/bin/bash
-# Keybind cheatsheet — reads the binds Hyprland is actually using right now
-# via `hyprctl binds -j` and shows them in rofi. Always accurate, even after
-# config edits, because Hyprland reports its live state.
+# Keybind Cheatsheet — Reads the Binds Hyprland Is Actually Using Right Now
+# Via `hyprctl binds -j` and shows them in rofi. Always Accurate, Even After
+# Config Edits, Because Hyprland Reports Its Live State.
 
 set -euo pipefail
 

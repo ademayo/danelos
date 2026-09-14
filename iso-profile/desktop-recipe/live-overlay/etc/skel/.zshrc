@@ -1,7 +1,7 @@
-# ~/.zshrc — interactive zsh setup
-# Agnoster-style prompt, oh-my-zsh features implemented directly against zsh
-# plugin packages (no framework). Sources plugin files from the Artix package
-# locations.
+# ~/.zshrc — Interactive zsh Setup
+# Agnoster-style Prompt, Oh-My-zsh Features Implemented Directly against zsh
+# Plugin Packages (No Framework). Sources Plugin Files from the Artix Package
+# Locations.
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -18,34 +18,34 @@ export LANG="${LANG:-en_US.UTF-8}"
 HISTFILE=~/.zsh_history
 HISTSIZE=10000
 SAVEHIST=10000
-setopt HIST_IGNORE_DUPS       # skip duplicates in history writes
-setopt HIST_IGNORE_ALL_DUPS   # drop older duplicates when a new one lands
-setopt HIST_IGNORE_SPACE      # commands starting with a space are not recorded
-setopt HIST_REDUCE_BLANKS     # trim redundant whitespace
-setopt SHARE_HISTORY          # share history between running shells
-setopt EXTENDED_HISTORY       # record timestamps and durations
+setopt HIST_IGNORE_DUPS       # Skip Duplicates in History Writes
+setopt HIST_IGNORE_ALL_DUPS   # Drop Older Duplicates when a New One Lands
+setopt HIST_IGNORE_SPACE      # Commands Starting with a Space Are Not Recorded
+setopt HIST_REDUCE_BLANKS     # Trim Redundant Whitespace
+setopt SHARE_HISTORY          # Share History between Running Shells
+setopt EXTENDED_HISTORY       # Record Timestamps and Durations
 
 # ---------------------------------------------------------------------------
-# Directory navigation and options
+# Directory Navigation and Options
 # ---------------------------------------------------------------------------
-setopt AUTO_CD                # typing a directory path cds into it
-setopt AUTO_PUSHD             # push directories onto the stack automatically
+setopt AUTO_CD                # Typing a Directory Path Cds into It
+setopt AUTO_PUSHD             # Push Directories onto the Stack Automatically
 setopt PUSHD_IGNORE_DUPS
-setopt CORRECT                # suggest corrections for command spellings
-setopt INTERACTIVE_COMMENTS   # allow comments on the interactive line
+setopt CORRECT                # Suggest Corrections for Command Spellings
+setopt INTERACTIVE_COMMENTS   # Allow Comments on the Interactive Line
 setopt NO_BEEP
 
-# completion cache
+# Completion Cache
 zstyle ':completion:*' cache-path ~/.zsh/cache
 mkdir -p ~/.zsh/cache
 
 # ---------------------------------------------------------------------------
-# Plugins (Artix packages)
+# Plugins (Artix Packages)
 # ---------------------------------------------------------------------------
 fpath+=(/usr/share/zsh/site-functions /usr/share/zsh/vendor-completions)
 
 autoload -Uz compinit
-# daily compinit cache; guard with -C when the dump is fresh
+# Daily Compinit Cache; Guard with -C when the Dump Is Fresh
 if [[ -n ${ZSH_VERSION} ]]; then
   if [[ "$(find ~/.zsh/cache -name 'zcompdump' -mtime -1 -print -quit 2>/dev/null)" ]]; then
     compinit -C -d ~/.zsh/cache/zcompdump
@@ -54,30 +54,30 @@ if [[ -n ${ZSH_VERSION} ]]; then
   fi
 fi
 
-# fish-like autosuggestions as you type
+# Fish-Like Autosuggestions as You Type
 source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=8'
 
-# syntax highlighting for the command line (keep last among line plugins)
+# Syntax Highlighting for the Command Line (Keep Last among Line Plugins)
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
-# history substring search: type part of a command, arrow up
+# History Substring Search: Type Part of a Command, Arrow Up
 source /usr/share/zsh/plugins/zsh-history-substring-search/zsh-history-substring-search.zsh
 bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
 
-# git completion ships with git; zsh-completions adds the rest
+# git Completion Ships with git; zsh-completions Adds the Rest
 [[ -f /usr/share/zsh/site-functions/_git ]] && fpath+=(/usr/share/zsh/site-functions)
 fpath+=(/usr/share/zsh/functions/Completion)
 
 # ---------------------------------------------------------------------------
-# Key bindings
+# Key Bindings
 # ---------------------------------------------------------------------------
-bindkey -e                          # emacs mode
-bindkey '^[[1;5C' forward-word      # ctrl+right
-bindkey '^[[1;5D' backward-word     # ctrl+left
-bindkey '^[.'  insert-last-word     # alt+. inserts last argument
-bindkey '^[q' push-line             # alt+q
+bindkey -e                          # Emacs Mode
+bindkey '^[[1;5C' forward-word      # Ctrl+right
+bindkey '^[[1;5D' backward-word     # Ctrl+left
+bindkey '^[.'  insert-last-word     # Alt+. Inserts Last Argument
+bindkey '^[q' push-line             # Alt+q
 
 # ---------------------------------------------------------------------------
 # Aliases
@@ -94,26 +94,26 @@ alias du='du -h'
 alias free='free -h'
 alias ip='ip -color=auto'
 alias mkdir='mkdir -pv'
-alias sudo='sudo '   # trailing space: expand aliases after sudo
+alias sudo='sudo '   # Trailing Space: Expand Aliases after sudo
 alias history='fc -il 1'
 
-# system management on dinit
+# System Management on dinit
 alias sc='sudo dinitctl'
 alias sv='dinitctl status'
 
 # ---------------------------------------------------------------------------
-# Prompt — agnoster, implemented directly
+# Prompt — Agnoster, Implemented Directly
 # ---------------------------------------------------------------------------
-# start background jobs with a clean prompt segment state
+# Start Background Jobs with a Clean Prompt Segment State
 setopt PROMPT_SUBST
 
-PROMPT_SEG_SEP=$'\ue0b0'          # right-pointing solid triangle
-PROMPT_SEG_SEP_THIN=$'\ue0b1'     # right-pointing thin triangle
+PROMPT_SEG_SEP=$'\ue0b0'          # Right-Pointing Solid Triangle
+PROMPT_SEG_SEP_THIN=$'\ue0b1'     # Right-Pointing Thin Triangle
 
-# 256-color fallbacks when truecolor is unavailable
+# 256-Color Fallbacks when Truecolor Is Unavailable
 autoload -Uz colors && colors
 
-# segment helper: draw <bg=fg> text with the triangle separator
+# Segment Helper: Draw <Bg=fg> Text with the Triangle Separator
 prompt_segment() {
   local bg fg text
   bg=$1; fg=$2; text=$3
@@ -121,15 +121,15 @@ prompt_segment() {
   print -n "%F{$bg_code}%K{$bg_code} $text %F{$fg_code}%k${PROMPT_SEG_SEP} "
 }
 
-# resolve names and hex codes to zsh color specs
+# Resolve Names and Hex Codes to zsh Color Specs
 color_to_code() {
   case "$1" in
-    \#*) printf '%s' "$1" ;;               # hex passes through
-    *)   printf '%s' "$1" ;;               # named color passes through
+    \#*) printf '%s' "$1" ;;               # Hex Passes Through
+    *)   printf '%s' "$1" ;;               # Named Color Passes Through
   esac
 }
 
-# git segment: branch + dirty/clean marker
+# git Segment: Branch + Dirty/clean Marker
 prompt_git() {
   (( $+commands[git] )) || return
   local branch dirty=""
@@ -140,7 +140,7 @@ prompt_git() {
   prompt_segment yellow black "${branch} ${dirty}"
 }
 
-# previous command status segment: green when ok, red with code when failed
+# Previous Command Status Segment: Green when OK, Red with Code when Failed
 prompt_status() {
   local code=$?
   if (( code != 0 )); then
@@ -148,7 +148,7 @@ prompt_status() {
   fi
 }
 
-# context segment: user@host, only over ssh or when root
+# Context Segment: User@host, Only over Ssh or when root
 prompt_context() {
   if [[ -n $SSH_CONNECTION || $USER == root ]]; then
     prompt_segment black white "%n@%m"
@@ -160,18 +160,18 @@ set_prompt() {
   PROMPT+='$(prompt_status)'
   PROMPT+='$(prompt_context)'
   PROMPT+='$(prompt_git)'
-  PROMPT+='$(prompt_segment blue white "%3~")'   # last three path components
+  PROMPT+='$(prompt_segment blue white "%3~")'   # Last Three Path Components
   PROMPT+='%{$reset_color%}'
 }
 set_prompt
 
-# re-evaluate on every prompt draw
+# Re-Evaluate on Every Prompt Draw
 precmd() { set_prompt; }
 
 # ---------------------------------------------------------------------------
-# Extra oh-my-zsh-like behavior, implemented inline
+# Extra Oh-My-zsh-Like Behavior, Implemented Inline
 # ---------------------------------------------------------------------------
-# colored completions with group headers and a menu
+# Colored Completions with Group Headers and a Menu
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}=*' 'r:|=*' 'l:|=* r:|=*'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*' menu select
@@ -180,21 +180,21 @@ zstyle ':completion:*:descriptions' format '%F{yellow}-- %d --%f'
 zstyle ':completion:*:warnings' format '%F{red}-- no matches --%f'
 zstyle ':completion:*' squeeze-slashes true
 
-# case-insensitive completion
+# Case-Insensitive Completion
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 
-# cd completion shows recent directories (cdr ecosystem, no plugin needed)
+# Cd Completion Shows Recent Directories (Cdr Ecosystem, No Plugin Needed)
 autoload -Uz zmv
 
-# command-not-found hint via pkgfile when present
+# Command-Not-Found Hint via Pkgfile when Present
 if (( $+commands[pkgfile] )); then
   source /usr/share/doc/pkgfile/command-not-found.zsh 2>/dev/null
 fi
 
-# safe replacement in history expansion
+# Safe Replacement in History Expansion
 setopt HIST_VERIFY
 
-# keep a running clock in titles; terminal title shows cwd
+# Keep a Running Clock in Titles; Terminal Title Shows Cwd
 case $TERM in
   xterm*|alacritty|*) precmd_functions+=(set_title) ;;
 esac
