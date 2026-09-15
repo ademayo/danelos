@@ -44,38 +44,37 @@ Packages resolve in this order:
 3. **Arch `extra`** — last-ditch fallback, kept for anything Artix and chaotic
    lack at a given moment. Installed with `SigLevel = PackageRequired`.
 
-## ISO Builds
-
-A GitHub Actions workflow (`.github/workflows/build-iso.yml`) builds a custom
-Artix dinit ISO with the installer script included. It runs daily, compares
-the newest Artix ISO stamp at `iso.artixlinux.org` against existing releases
-in the repo, and builds a new ISO only when upstream publishes a new one.
-Finished ISOs land in the repo's Releases with sha256 checksums. The build
-can also be triggered manually via `workflow_dispatch`.
-
-The ISO profile lives in `iso-profile/desktop-recipe/` — a standard artools
-profile (`profile.yaml` plus a `live-overlay/` tree) that installs the
-Hyprland stack, SDDM with a bundled Arc Dark theme, the dinit service set, and ships the
-installer at `/root/desktop-recipe/installer/recipe` inside the live session,
-symlinked onto PATH as `recipe`.
-
-A GitHub Pages site under `docs/` mirrors this readme as a landing page;
-the deploy workflow (`.github/workflows/deploy-pages.yml`) publishes it on
-every push that touches `docs/`.
-
 ## Install
+Runs from a stock `artix-base-dinit` ISO with a network connection.
 
-Runs on any Artix live ISO — the custom one from Releases or a stock
-`artix-base-dinit` ISO with the repo cloned onto it.
-
-1. Download the latest ISO from the repo's Releases (built automatically
-   against each new Artix release — see `## ISO Builds` above).
-2. Write it to a USB stick and boot it.
-3. Log in as the live user (password `artix`), open a terminal, and run:
+1. Download the ISO from [artixlinux.org](https://artixlinux.org/download.php)
+   (base, dinit flavour) and write it to a USB stick.
+2. Boot it and log in as the live user (password `artix`).
+3. Connect to Wi-Fi (see below) or plug in Ethernet.
+4. Open a terminal and run:
 
 ```bash
-sudo recipe
+sudo pacman -Syu git --noconfirm && \
+  git clone https://github.com/ademayo/danelos.git && \
+  sudo ./danelos/installer/recipe
 ```
+
+### Wi-Fi (wpa_supplicant)
+
+The stock ISO ships no NetworkManager — bring the link up by hand first.
+As root:
+
+```bash
+rfkill unblock all
+wpa_supplicant -B -i wlan0 -c <(wpa_passphrase 'MyNetwork' 'MyPassword')
+dhcpcd wlan0
+```
+
+Replace `wlan0` with your interface (`ip link` or `ls /sys/class/net` to
+find it). Once `ping -c1 artixlinux.org` works, run the installer — it
+detects the live connection and skips its own Wi-Fi setup. To leave the
+supplicant running in the foreground instead of backgrounding with `-B`,
+run it in a second terminal (or TTY) and keep it there while you install.
 
 The installer asks for hostname, name, username, root/user passwords, system
 language, timezone, and whether to enable LUKS2 encryption and the ufw
@@ -131,8 +130,6 @@ desktop-recipe/
 ├── packages/
 │   ├── base.packages           # system + CLI package list
 │   └── desktop.packages        # desktop package list
-├── iso-profile/
-│   └── desktop-recipe/         # artools profile for the GitHub Actions ISO build
 ├── system/
 │   └── sddm/                   # sddm.conf (Wayland greeter), themes/arc-dark (QML theme)
 ├── conf/

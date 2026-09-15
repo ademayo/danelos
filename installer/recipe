@@ -5,18 +5,17 @@
 #  ██║  ██║███████║██╔██╗ ██║█████╗  ██║     ██║  ██║███████╗
 #  ██║  ██║██╔══██║██║╚██╗██║██╔══╝  ██║     ██║  ██║╚════██║
 #  ██████╔╝██║  ██║██║ ╚████║███████╗███████╗██████╔╝███████║
-#  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚═════╝ ╚══════╝
-#  Boot The Custom Artix ISO, Log In, And Run:
+#  Stock Artix ISO (base-dinit), Connected To Wi-Fi Or Ethernet. As Root:
 #
-#    sudo ./installer/recipe
+#    sudo pacman -Syu git --noconfirm && \
+#      git clone https://github.com/ademayo/danelos.git && \
+#      sudo ./danelos/installer/recipe
 # ============================================================================
 set -eEuo pipefail
 
 VERSION="0.2"
 MNT=/mnt
 LOG=/tmp/install.log
-# Symlinked Invocation (`sudo recipe` Via /usr/local/bin): Resolve the Real
-# Script Path First, Then Step Up to the Bundled Repo Root.
 SRC="$(dirname "$(readlink -f "${BASH_SOURCE[0]:-.}")")/.."
 
 # ----------------------------------------------------------------------------
@@ -39,9 +38,8 @@ banner() {
   echo "  ██████╔╝██║  ██║██║ ╚████║███████╗███████╗██████╔╝███████║"
   echo "  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚═════╝ ╚══════╝"
   echo -e "${N}${C}  Artix · dinit · Hyprland${N}"
-  echo -e "${Y}  v${VERSION} — The Whole Rig Will Be Wiped, No Take-Backs${N}"
+  echo -e "${Y}  v${VERSION} — Stock ISO · Wi-Fi Ready · The Whole Rig Will Be Wiped, No Take-Backs${N}"
 }
-
 log()  { echo -e "${G}::${N} $*" | tee -a "$LOG"; }
 step() { echo -e "\n${C}==> ${B}$*${N}" | tee -a "$LOG"; }
 warn() { echo -e "${Y} !! $*${N}" | tee -a "$LOG"; }
@@ -50,12 +48,12 @@ die()  { echo -e "${D}FATAL: $*${N}" | tee -a "$LOG" >&2; exit 1; }
 # ----------------------------------------------------------------------------
 # Preflight
 # ----------------------------------------------------------------------------
-[ "$(id -u)" = 0 ] || die "Run As Root — Boot The Custom ISO And Log In As The Live User."
+[ "$(id -u)" = 0 ] || die "Run As Root — Boot The Stock ISO And Log In As The Live User."
 grep -qs 'Artix' /etc/os-release || die "This Installer Must Run On Artix Linux."
 
-# The Custom ISO Is the Only Supported Install Path; Refuse Anything Else.
-# Artix Live Detection: The Initramfs Mounts the Live Root Under /run/artix
-# (iso-initcpio 'artix' Hook) And Boot Params Carry label=/overlay=livefs.
+# Stock Artix Live Detection: The Initramfs Mounts the Live Root Under
+# /run/artix (iso-initcpio 'artix' Hook) And Boot Params Carry
+# label=/overlay=livefs.
 live_ok() {
   [ -d /run/artix ] && return 0
   grep -qs 'overlay=livefs\|label=ARTIX' /proc/cmdline && return 0
@@ -63,26 +61,27 @@ live_ok() {
 }
 
 if ! live_ok; then
-  die "Not Running From The Artix Live Environment. Boot The ISO Built By This Repo."
+  die "Not Running From The Artix Live Environment. Boot The Stock Artix ISO."
 fi
 
 # ----------------------------------------------------------------------------
-# Dependencies (Only What a Bare Artix ISO Lacks)
+# Dependencies (Only What a Stock Artix ISO Lacks)
 # ----------------------------------------------------------------------------
 ensure_deps() {
   step "Checking Dependencies"
   # basestrap/artix-chroot/fstabgen Ship On Every Artix Live ISO (artools-base,
-  # Dependency Of artix-live-base). Anything Else Gets Pulled From the Repos.
+  # Dependency Of artix-live-base). whiptail/git Are On the Stock base-dinit
+  # ISO; Anything Else Gets Pulled From the Repos.
   local missing=()
-  for c in whiptail sgdisk curl vim; do
+  for c in whiptail sgdisk curl vim git; do
     command -v "$c" >/dev/null 2>&1 || missing+=("$c")
   done
   if [ ${#missing[@]} -gt 0 ]; then
     log "Installing Missing ISO Tools: ${missing[*]}"
-    pacman -S --noconfirm --needed libnewt gptfdisk curl vim >>"$LOG" 2>&1
+    pacman -Sy --noconfirm --needed libnewt gptfdisk curl vim git >>"$LOG" 2>&1
   fi
-  for c in whiptail sgdisk basestrap artix-chroot fstabgen; do
-    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Artools-Base First."
+  for c in whiptail sgdisk basestrap artix-chroot fstabgen git; do
+    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Artools-Base, Git First."
   done
 }
 
@@ -720,8 +719,8 @@ enable_services() {
 # Desktop Config Layer
 # ----------------------------------------------------------------------------
 deploy_configs() {
-  # The Config Layer Ships Inside the Custom ISO
-  [ -d "$SRC/conf" ] || die "Config Layer Missing From The ISO — Rebuild It."
+  # The Config Layer Lives In the Cloned Repo, Sibling To installer/
+  [ -d "$SRC/conf" ] || die "Config Layer Missing Next To The Installer — Clone the Full Repo (git clone), Not a Single File."
 
   step "Deploying Desktop Configs"
   local u_home="/mnt/home/$USERNAME"
@@ -794,7 +793,7 @@ finish() {
   local fw_note="Firewall:   ufw OFF"
   [ "$ENABLE_UFW" = yes ] && fw_note="Firewall:   ufw ON — All Incoming Denied"
 
-  whiptail --title "Artix — Done" --msgbox "Install Complete. Reboot And Remove The ISO.
+  whiptail --title "Artix — Done" --msgbox "Install Complete. Reboot, Pull the USB Stick, Done.
 
 User:      $USERNAME
 Hostname:  $HOSTNAME

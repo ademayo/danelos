@@ -217,17 +217,28 @@
 
 <section>
   <h2>Install</h2>
-  <p>Grab the latest ISO from the repo's <b>Releases</b> — the CI builds one automatically
-  every time Artix publishes a new release. Write it to a USB stick, boot it, log in as the
-  live user (password <span class="mono">artix</span>), then:</p>
+  <p>Runs from a stock <span class="mono">artix-base-dinit</span> ISO. Boot it, log in as the
+  live user (password <span class="mono">artix</span>), connect to Wi-Fi or Ethernet, then:</p>
   <div class="code-wrap"><span class="lbl">live session</span>
 <pre><span class="cmt"># wipes the target disk — the installer asks before touching anything</span>
-<span class="cmd">sudo ./installer/recipe</span></pre>
+<span class="cmd">sudo pacman -Syu git --noconfirm && \
+  git clone https://github.com/ademayo/danelos.git && \
+  sudo ./danelos/installer/recipe</span></pre>
   </div>
-  <p style="margin-top:14px">It asks for hostname, your name, username, passwords and timezone,
-  then partitions the disk as EFI + swap + Btrfs root (<span class="mono">@</span> and
-  <span class="mono">@home</span> subvolumes, zstd compression), pacstraps Artix + dinit,
-  installs the desktop, creates your user and sets up GRUB. Reboot into Hyprland.</p>
+  <h3 style="margin-top:18px">Wi-Fi via wpa_supplicant</h3>
+  <p>The stock ISO ships no NetworkManager — bring the link up by hand first
+  (as root, <span class="mono">wlan0</span> = your interface, see <span class="mono">ip link</span>):</p>
+  <div class="code-wrap"><span class="lbl">live session</span>
+<pre><span class="cmd">rfkill unblock all
+wpa_supplicant -B -i wlan0 -c &lt;(wpa_passphrase 'MyNetwork' 'MyPassword')
+dhcpcd wlan0</span></pre>
+  </div>
+  <p style="margin-top:14px">Once <span class="mono">ping -c1 artixlinux.org</span> works, run the installer —
+  it detects the live connection and skips its own Wi-Fi setup. It asks for
+  hostname, your name, username, passwords and timezone, then partitions the disk
+  as EFI + swap + Btrfs root (<span class="mono">@</span> and <span class="mono">@home</span> subvolumes,
+  zstd compression), pacstraps Artix + dinit, installs the desktop, creates your
+  user and sets up GRUB. Reboot into Hyprland.</p>
 </section>
 
 <section>
@@ -274,17 +285,6 @@
     <span><b>wireplumber</b> (user)</span>
   </div>
 </section>
-
-<section>
-  <h2>How The ISO Gets Built</h2>
-  <p>A GitHub Actions workflow watches
-  <a href="https://iso.artixlinux.org">iso.artixlinux.org</a> for a new
-  <span class="mono">artix-base-dinit</span> stamp. When upstream ships one, artools
-  <span class="mono">buildiso</span> runs inside the official Artix container with this repo's
-  profile — Hyprland, SDDM, the dinit service set, and the installer baked into the live
-  session. The finished ISO and its sha256 checksums land in Releases.</p>
-</section>
-
 </main>
 
 <footer>

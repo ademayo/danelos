@@ -1,5 +1,0 @@
-#
-# /etc/fstab: Static File System Information
-#
-# <File System>        <Dir>         <Type>    <Options>          <Dump> <Pass>
-/dev/mapper/rootfs /             auto      defaults           0      0

@@ -1,2 +1,0 @@
-# Live Session: Wheel Group May run Anything without a Password Prompt
-%wheel ALL=(ALL) ALL
