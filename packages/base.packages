@@ -46,6 +46,8 @@ wireplumber
 pipewire-dinit
 pipewire-pulse-dinit
 wireplumber-dinit
+# pipewire-jack: Concrete Provider for the `jack` Virtual — Pacman Never Asks
+pipewire-jack
 
 # CLI Tools (The "Common Base Linux Utils")
 vim

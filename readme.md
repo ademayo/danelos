@@ -25,7 +25,7 @@ with stock session entries and bootloader settings throughout.
 | Editor     | vim (with a sane Arc Dark baseline config)                     |
 | Theme      | Arc Dark GTK + Papirus(-Dark) icons, one coherent look         |
 | Fonts      | CaskaydiaCove Nerd Font (mono), Adwaita Sans (UI)              |
-| Audio      | pipewire + wireplumber + pipewire-pulse (dinit user services), pavucontrol-qt mixer |
+| Audio      | pipewire + wireplumber + pipewire-pulse (dinit user services) + pipewire-jack, pavucontrol-qt mixer |
 | Power/lock | wlogout menu, hyprlock, hypridle (10/15/30 min timeouts)       |
 | Language   | 30-locale picker at install time (ISO locale preselected)      |
 | Encryption | Optional LUKS2 (Argon2id) on the System partition; swap lives inside the encrypted volume as a Btrfs swapfile; one passphrase at boot |

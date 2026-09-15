@@ -47,6 +47,9 @@ rootfs:
     - cliphist
     - mpv
 
+    # Session Plumbing (pipewire-jack: Concrete jack Provider, Pacman Never Asks)
+    - pipewire-jack
+
     # Everyday Desktop: Calculator, Image Viewer, PDF Viewer, Thumbnails
     - galculator
     - ristretto
