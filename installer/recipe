@@ -15,7 +15,9 @@ set -eEuo pipefail
 VERSION="0.2"
 MNT=/mnt
 LOG=/tmp/install.log
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd)"
+# Symlinked Invocation (`sudo recipe` Via /usr/local/bin): Resolve the Real
+# Script Path First, Then Step Up to the Bundled Repo Root.
+SRC="$(dirname "$(readlink -f "${BASH_SOURCE[0]:-.}")")/.."
 
 # ----------------------------------------------------------------------------
 # Look and Feel
@@ -52,8 +54,16 @@ die()  { echo -e "${D}FATAL: $*${N}" | tee -a "$LOG" >&2; exit 1; }
 grep -qs 'Artix' /etc/os-release || die "This Installer Must Run On Artix Linux."
 
 # The Custom ISO Is the Only Supported Install Path; Refuse Anything Else.
-if [ ! -e /run/live ] && ! grep -qs 'boot=live' /proc/cmdline; then
-  die "Not Running From The Custom ISO Live Environment. Boot The ISO Built By This Repo."
+# Artix Live Detection: The Initramfs Mounts the Live Root Under /run/artix
+# (iso-initcpio 'artix' Hook) And Boot Params Carry label=/overlay=livefs.
+live_ok() {
+  [ -d /run/artix ] && return 0
+  grep -qs 'overlay=livefs\|label=ARTIX' /proc/cmdline && return 0
+  mountpoint -q /run/artix/bootmnt 2>/dev/null
+}
+
+if ! live_ok; then
+  die "Not Running From The Artix Live Environment. Boot The ISO Built By This Repo."
 fi
 
 # ----------------------------------------------------------------------------
@@ -61,16 +71,18 @@ fi
 # ----------------------------------------------------------------------------
 ensure_deps() {
   step "Checking Dependencies"
+  # basestrap/artix-chroot/fstabgen Ship On Every Artix Live ISO (artools-base,
+  # Dependency Of artix-live-base). Anything Else Gets Pulled From the Repos.
   local missing=()
-  for c in whiptail sgdisk curl vim pacstrap arch-chroot genfstab; do
+  for c in whiptail sgdisk curl vim; do
     command -v "$c" >/dev/null 2>&1 || missing+=("$c")
   done
   if [ ${#missing[@]} -gt 0 ]; then
     log "Installing Missing ISO Tools: ${missing[*]}"
-    pacman -S --noconfirm --needed libnewt gptfdisk curl vim arch-install-scripts >>"$LOG" 2>&1
+    pacman -S --noconfirm --needed libnewt gptfdisk curl vim >>"$LOG" 2>&1
   fi
-  for c in whiptail sgdisk pacstrap arch-chroot genfstab; do
-    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Arch-Install-Scripts First."
+  for c in whiptail sgdisk basestrap artix-chroot fstabgen; do
+    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Artools-Base First."
   done
 }
 
@@ -508,9 +520,9 @@ EOF
   echo "KEYMAP=${KEYMAP:-us}" > /etc/vconsole.conf
 
   # Locale: Written To the Target Now; locale.gen Un-commented and locale-gen
-  # Runs Post-pacstrap (The Target File Only Exists After glibc Installs).
+  # Runs Post-basestrap (The Target File Only Exists After glibc Installs).
   echo "LANG=$LOCALE" > /mnt/etc/locale.conf
-  # Post-pacstrap, In Target: Enable the Picked Locale Plus en_US As a Floor.
+  # Post-basestrap, In Target: Enable the Picked Locale Plus en_US As a Floor.
   POST_LOCALE_GEN='
 sed -i "s/^#@LOCALE@ UTF-8/@LOCALE@ UTF-8/" /etc/locale.gen
 sed -i "s/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/" /etc/locale.gen
@@ -533,9 +545,9 @@ locale-gen
 # ----------------------------------------------------------------------------
 # Target Packages
 # ----------------------------------------------------------------------------
-pacstrap_target() {
+basestrap_target() {
   step "Installing Base System (This Takes A While — Grab A Coffee)"
-  # Repo Package Lists Minus What pacstrap Needs Pulled Explicitly
+  # Repo Package Lists Minus What basestrap Needs Pulled Explicitly
   local -a base_pkgs=() line
   while IFS= read -r line; do
     line="${line%%#*}"; line="$(echo "$line" | xargs)" || true
@@ -552,14 +564,14 @@ pacstrap_target() {
   [ "$ENABLE_UFW" = yes ] && extra_pkgs+=(ufw ufw-dinit iptables)
 
   pacman -Sy archlinux-keyring artix-keyring >>"$LOG" 2>&1 || true
-  pacstrap -K $MNT base base-devel linux linux-firmware linux-headers \
+  basestrap -K $MNT base base-devel linux linux-firmware linux-headers \
     grub efibootmgr os-prober mkinitcpio btrfs-progs dosfstools \
     "${extra_pkgs[@]}" "${base_pkgs[@]}" \
     >>"$LOG" 2>&1
 
   # Locale: The Target's locale.gen Now Exists — Enable Pick + en_US, Generate.
   step "Generating Locale $LOCALE"
-  arch-chroot $MNT bash -c "POST_LOCALE_GEN=$(printf '%q' "$POST_LOCALE_GEN"); eval \"\$POST_LOCALE_GEN\""
+  artix-chroot $MNT bash -c "POST_LOCALE_GEN=$(printf '%q' "$POST_LOCALE_GEN"); eval \"\$POST_LOCALE_GEN\""
 
   # Chaotic-AUR (For ungoogled-chromium-bin, papirus-folders)
   cat >> /mnt/etc/pacman.conf <<'EOF'
@@ -570,15 +582,20 @@ Server = https://cdn-mirror.chaotic.cx/$repo/$arch
 Server = https://geo-mirror.chaotic.cx/$repo/$arch
 EOF
   if ! grep -qs '^\[extra\]' /mnt/etc/pacman.conf; then
+    # Last-Ditch: Arch Extra, Used Only for Packages Artix and Chaotic Lack.
+    # The Stock ISO Lacks artix-archlinux-support (No arch-mirrorlist); Point
+    # Straight At the Arch Geo Mirror Instead of an Include.
     cat >> /mnt/etc/pacman.conf <<'EOF'
 
-# Last-Ditch: Arch Extra, Used Only for Packages Artix and Chaotic Lack.
 [extra]
 SigLevel = PackageRequired
-Include = /etc/pacman.d/arch-mirrorlist
+Server = https://geo.mirror.pkgbuild.com/extra/os/$arch
 EOF
+    if [ -f /etc/pacman.d/arch-mirrorlist ]; then
+      cp /etc/pacman.d/arch-mirrorlist /mnt/etc/pacman.d/
+      sed -i 's|^Server = https://geo.mirror.pkgbuild.com/extra/os/$arch|Include = /etc/pacman.d/arch-mirrorlist|' /mnt/etc/pacman.conf
+    fi
   fi
-  [ -f /etc/pacman.d/arch-mirrorlist ] && cp /etc/pacman.d/arch-mirrorlist /mnt/etc/pacman.d/ || true
 
   # Desktop Packages (hyprland, waybar, alacritty, sddm, browsers, ...)
   step "Installing Desktop Packages"
@@ -588,17 +605,17 @@ EOF
     [ -z "$line" ] && continue
     desk_pkgs+=("$line")
   done < "$SRC/packages/desktop.packages"
-  arch-chroot $MNT pacman -S --noconfirm --needed --asexplicit "${desk_pkgs[@]}" >>"$LOG" 2>&1
+  artix-chroot $MNT pacman -S --noconfirm --needed --asexplicit "${desk_pkgs[@]}" >>"$LOG" 2>&1
 
-  arch-chroot $MNT pacman -Syu --noconfirm --needed >>"$LOG" 2>&1
+  artix-chroot $MNT pacman -Syu --noconfirm --needed >>"$LOG" 2>&1
 }
 
 make_fstab() {
   step "Generating Fstab"
   mkdir -p /mnt/etc
-  genfstab -U $MNT > /mnt/etc/fstab
+  fstabgen -U $MNT > /mnt/etc/fstab
 
-  # genfstab Can Pick Up the ISO's Own Swap Entry; Keep Only Target-Disk Lines
+  # fstabgen Can Pick Up the ISO's Own Swap Entry; Keep Only Target-Disk Lines
   if [ "$ENCRYPT" = yes ]; then
     # Swapfile Lives On the Encrypted Btrfs; Plain Directory On the Root Subvol.
     grep -v 'swap' /mnt/etc/fstab > /tmp/fstab.clean
@@ -622,14 +639,14 @@ make_fstab() {
 
 configure_users() {
   step "Creating Users"
-  printf '%s\n' "$ROOT_PW" "$ROOT_PW" | arch-chroot $MNT passwd root >/dev/null
+  printf '%s\n' "$ROOT_PW" "$ROOT_PW" | artix-chroot $MNT passwd root >/dev/null
 
   # Login Shell: zsh For the User, root Keeps bash
-  arch-chroot $MNT useradd -m -G wheel -s /bin/zsh -c "$REALNAME" "$USERNAME"
-  printf '%s\n' "$USER_PW" "$USER_PW" | arch-chroot $MNT passwd "$USERNAME" >/dev/null
+  artix-chroot $MNT useradd -m -G wheel -s /bin/zsh -c "$REALNAME" "$USERNAME"
+  printf '%s\n' "$USER_PW" "$USER_PW" | artix-chroot $MNT passwd "$USERNAME" >/dev/null
 
   # Common/Necessary Groups: Sudo Via Wheel, Plus Classic Device Access
-  arch-chroot $MNT usermod -aG audio,video,optical,storage,lp,input,network "$USERNAME"
+  artix-chroot $MNT usermod -aG audio,video,optical,storage,lp,input,network "$USERNAME"
 
   # Sudo For Wheel (System-Wide)
   echo '%wheel ALL=(ALL:ALL) ALL' > /mnt/etc/sudoers.d/00-wheel
@@ -637,11 +654,11 @@ configure_users() {
 
   # Ensure Wheel Exists Even On Minimal Installs
   if ! grep -qs '^wheel:' /mnt/etc/group; then
-    arch-chroot $MNT groupadd -f wheel
+    artix-chroot $MNT groupadd -f wheel
   fi
 
   # /bin/sh: dash (POSIX-Fast), bash Stays Available for root and Scripts
-  arch-chroot $MNT ln -sfn dash /usr/bin/sh
+  artix-chroot $MNT ln -sfn dash /usr/bin/sh
 }
 
 install_grub() {
@@ -664,16 +681,16 @@ install_grub() {
   if [ "$ENCRYPT" = yes ]; then
     local luksuuid
     luksuuid=$(cryptsetup luksUUID "$part2")
-    arch-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
+    artix-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
       --bootloader-id=Artix --recheck >>"$LOG" 2>&1
     # Kernel Cmdline Points the encrypt Hook At the Container By UUID.
     sed -i "s|GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luksuuid:cryptsystem root=/dev/mapper/cryptsystem\"|" \
       /mnt/etc/default/grub
-    arch-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
+    artix-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
   else
-    arch-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
+    artix-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
       --bootloader-id=Artix --recheck >>"$LOG" 2>&1
-    arch-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
+    artix-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
   fi
 }
 
@@ -694,7 +711,7 @@ enable_services() {
     chown -R "$(stat -c %u /mnt/home/$USERNAME)" "$home_dir/.config"
   fi
   # Machine ID For dbus/elogind
-  arch-chroot $MNT dbus-uuidgen --ensure >/dev/null 2>&1 || true
+  artix-chroot $MNT dbus-uuidgen --ensure >/dev/null 2>&1 || true
   [ -f /mnt/var/lib/dbus/machine-id ] && [ ! -f /mnt/etc/machine-id ] && \
     cp /mnt/var/lib/dbus/machine-id /mnt/etc/machine-id || true
 }
@@ -733,7 +750,7 @@ deploy_configs() {
   cp "$SRC"/wallpapers/*.jpg /mnt/usr/share/backgrounds/
 
   # Dark Folders For Papirus Icons
-  arch-chroot $MNT sudo -u "$USERNAME" papirus-folders -C ePapirus-Dark --theme Papirus-Dark >/dev/null 2>&1 || true
+  artix-chroot $MNT sudo -u "$USERNAME" papirus-folders -C ePapirus-Dark --theme Papirus-Dark >/dev/null 2>&1 || true
 }
 
 configure_firewall() {
@@ -744,17 +761,17 @@ configure_firewall() {
   sed -i 's/^IPV6=no/IPV6=yes/' /mnt/etc/default/ufw
   # Seed the Rules File With the Default Policy (ufw-dinit Runs `ufw enable`
   # At Boot, Which Reloads These).
-  arch-chroot $MNT ufw --force reset >>"$LOG" 2>&1 || true
-  arch-chroot $MNT ufw default deny incoming >>"$LOG" 2>&1
-  arch-chroot $MNT ufw default allow outgoing >>"$LOG" 2>&1
+  artix-chroot $MNT ufw --force reset >>"$LOG" 2>&1 || true
+  artix-chroot $MNT ufw default deny incoming >>"$LOG" 2>&1
+  artix-chroot $MNT ufw default allow outgoing >>"$LOG" 2>&1
   # Loopback + NetworkManager DHCP/RA Must Never Be Blocked.
-  arch-chroot $MNT ufw allow in on lo >>"$LOG" 2>&1
-  arch-chroot $MNT ufw allow out on lo >>"$LOG" 2>&1
-  arch-chroot $MNT ufw allow in proto udp from any port 67 to any port 68 >>"$LOG" 2>&1
-  arch-chroot $MNT ufw allow in proto ipv6 from fe80::/10 >>"$LOG" 2>&1
-  arch-chroot $MNT ufw --force enable >>"$LOG" 2>&1
+  artix-chroot $MNT ufw allow in on lo >>"$LOG" 2>&1
+  artix-chroot $MNT ufw allow out on lo >>"$LOG" 2>&1
+  artix-chroot $MNT ufw allow in proto udp from any port 67 to any port 68 >>"$LOG" 2>&1
+  artix-chroot $MNT ufw allow in proto ipv6 from fe80::/10 >>"$LOG" 2>&1
+  artix-chroot $MNT ufw --force enable >>"$LOG" 2>&1
   log "ufw Status (Chroot):"
-  arch-chroot $MNT ufw status verbose | sed 's/^/    /' | tee -a "$LOG"
+  artix-chroot $MNT ufw status verbose | sed 's/^/    /' | tee -a "$LOG"
 }
 
 # ----------------------------------------------------------------------------
@@ -800,7 +817,7 @@ main() {
   select_disk
   partition_disk
   write_keyfiles
-  pacstrap_target
+  basestrap_target
   make_fstab
   enable_services
   deploy_configs
