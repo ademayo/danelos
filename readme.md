@@ -56,7 +56,8 @@ can also be triggered manually via `workflow_dispatch`.
 The ISO profile lives in `iso-profile/desktop-recipe/` — a standard artools
 profile (`profile.yaml` plus a `live-overlay/` tree) that installs the
 Hyprland stack, SDDM with a bundled Arc Dark theme, the dinit service set, and ships the
-installer at `/root/desktop-recipe/installer/recipe` inside the live session.
+installer at `/root/desktop-recipe/installer/recipe` inside the live session,
+symlinked onto PATH as `recipe`.
 
 A GitHub Pages site under `docs/` mirrors this readme as a landing page;
 the deploy workflow (`.github/workflows/deploy-pages.yml`) publishes it on
@@ -64,8 +65,8 @@ every push that touches `docs/`.
 
 ## Install
 
-The custom ISO is the only install path. The installer refuses to run
-anywhere else.
+Runs on any Artix live ISO — the custom one from Releases or a stock
+`artix-base-dinit` ISO with the repo cloned onto it.
 
 1. Download the latest ISO from the repo's Releases (built automatically
    against each new Artix release — see `## ISO Builds` above).
@@ -73,7 +74,7 @@ anywhere else.
 3. Log in as the live user (password `artix`), open a terminal, and run:
 
 ```bash
-sudo ./installer/recipe
+sudo recipe
 ```
 
 The installer asks for hostname, name, username, root/user passwords, system
@@ -95,11 +96,12 @@ Encrypted (LUKS2, Argon2id):
 | 1 | EFI       | 512 MiB  | FAT32  | BOOT (unencrypted) |
 | 2 | System    | rest     | LUKS2 → Btrfs | cryptsystem (subvolumes `@` + `@home`, 4 GiB swapfile inside) |
 
-Then it pacstraps Artix + dinit, installs the desktop, creates the user
+Then it bootstraps Artix + dinit (`basestrap`), installs the desktop, creates the user
 (wheel/audio/video/storage + friends, sudo enabled), installs GRUB and
 configures the Hyprland session via SDDM. With encryption on, the disk
 passphrase is asked once at boot (initramfs `encrypt` hook) — the greeter
 does not re-ask it.
+
 
 ## Keyboard Shortcuts
 
