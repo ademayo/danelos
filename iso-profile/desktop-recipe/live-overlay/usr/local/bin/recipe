@@ -1,1 +1,7 @@
-/root/desktop-recipe/installer/recipe
+#!/bin/sh
+# Thin Wrapper: Runs the Bundled Installer (Baked Into the ISO At
+# /root/desktop-recipe by the CI Workflow). A Real Script, Not a Symlink —
+# buildiso's make_livefs() cp Dereferences Symlinks When Copying the
+# live-overlay Tree, and This File's Absolute Target Only Exists Inside the
+# Squashfs, So the Copy Aborted the Build.
+exec /root/desktop-recipe/installer/recipe "$@"

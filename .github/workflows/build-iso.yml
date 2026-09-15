@@ -116,11 +116,10 @@ jobs:
           # Component, Not Missing Parents, so Create It Explicitly.
           mkdir -p iso-profile/desktop-recipe/live-overlay/root
           rsync -a --exclude iso-profile . iso-profile/desktop-recipe/live-overlay/root/desktop-recipe/
-          # Put the Installer on PATH Inside the Live Session: /usr/local/bin
-          # Symlink Means `sudo recipe` Works From Any Directory.
-          mkdir -p iso-profile/desktop-recipe/live-overlay/usr/local/bin
-          ln -sf /root/desktop-recipe/installer/recipe \
-            iso-profile/desktop-recipe/live-overlay/usr/local/bin/recipe
+          # live-overlay/usr/local/bin/recipe Is a Committed Wrapper Script
+          # (Not a Symlink: make_livefs() cp Dereferences Symlinks While
+          # Copying the Profile, and the Absolute /root Target Only Exists
+          # Inside the Squashfs, Which Aborted the Build).
           mkdir -p ~/artools-workspace/iso-profiles
           rsync -a iso-profile/desktop-recipe ~/artools-workspace/iso-profiles/
 
