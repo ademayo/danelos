@@ -69,6 +69,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Pin Fast Artix Mirrors
+        # The Baked-In Mirrorlist Leads With mirrors.dotsrc.org (Throttles
+        # GitHub Runners Below 1 B/s, Tripping pacman's 10-Second Stall
+        # Failsafe) And ftp.ntua.gr (Stale — 404s On Current Packages).
+        # Those Are The First Two Entries, So One Slow Day Fails The Whole
+        # Transaction. Overwrite With Fast, Verified Mirrors; basestrap
+        # Copies /etc/pacman.d/mirrorlist Into Every buildiso Chroot, So
+        # The Chroot Syncs Are Covered Too.
+        run: |
+          printf '%s\n' \
+            'Server = https://mirror1.artixlinux.org/repos/$repo/os/$arch' \
+            'Server = https://mirror3.artixlinux.org/repos/$repo/os/$arch' \
+            'Server = https://artix.wheaton.edu/repos/$repo/os/$arch' \
+            'Server = https://ftp.halifax.rwth-aachen.de/artixlinux/$repo/os/$arch' \
+            'Server = https://ftp.sh.cvut.cz/artix-linux/$repo/os/$arch' \
+            'Server = https://mirror.netcologne.de/artix-linux/$repo/os/$arch' \
+            > /etc/pacman.d/mirrorlist
+
       - name: Prepare Build Environment
         run: |
           pacman -Sy --noconfirm --needed artools-base artools-iso git rsync \
