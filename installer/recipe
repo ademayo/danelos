@@ -337,38 +337,57 @@ partition_disk() {
   umount -R /mnt 2>/dev/null || true
   if [ -e /dev/mapper/cryptsystem ]; then
     log "Closing stale cryptsystem mapping before repartitioning"
-    cryptsetup close cryptsystem 2>/dev/null || true
+    cryptsetup close cryptsystem 2>/dev/null || dmsetup remove cryptsystem 2>/dev/null || true
   fi
+  # Drop any leftover partition entries so the kernel starts from a clean GPT.
+  partx --delete --nr 1:2 "$DISK" >>"$LOG" 2>&1 || true
+  sync
 
   # Zap and recreate GPT.
   sgdisk --zap-all "$DISK" >>"$LOG" 2>&1
   sgdisk -n 1:0:+512M -t 1:ef00 -c 1:BOOT "$DISK" >>"$LOG" 2>&1
   sgdisk -n 2:0:0     -t 2:8304 -c 2:cryptsystem "$DISK" >>"$LOG" 2>&1
+  sync
 
-  # Tell the kernel about the new partition table and wait until the nodes
-  # appear. On a real disk this is fast; on loopback or slow media we retry.
+  # NVMe devices are sometimes lazy about repopulating /dev partition nodes.
+  # Tell the kernel, explicitly add the new partition entries, and wait until
+  # the nodes are real block devices that also appear in /proc/partitions.
   blockdev --rereadpt "$DISK" >>"$LOG" 2>&1 || true
   partx -u "$DISK" >>"$LOG" 2>&1 || true
-  local _p _node _mj _mn _tries _prefix
+  partx --add --nr 1:2 "$DISK" >>"$LOG" 2>&1 || true
+  udevadm settle >>"$LOG" 2>&1 || true
+
+  local _prefix
   if [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]]; then
     _prefix="${DISK}p"
   else
     _prefix="${DISK}"
   fi
-  for _p in "${_prefix}1" "${_prefix}2"; do
-    _tries=0
-    while [ ! -e "$_p" ] && [ "$_tries" -lt 30 ]; do
-      sleep 0.2
-      blockdev --rereadpt "$DISK" >>"$LOG" 2>&1 || true
-      partx -u "$DISK" >>"$LOG" 2>&1 || true
-      # Direct node creation fallback: some live ISOs do not spawn udev
-      # partition events for certain block devices.
-      if [ ! -e "$_p" ] && [ -r "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev" ]; then
-        IFS=: read -r _mj _mn < "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev"
-        [ -e "$_p" ] || mknod "$_p" b "$_mj" "$_mn" 2>/dev/null || true
+
+  local _p _tries _found
+  _tries=0
+  while [ "$_tries" -lt 50 ]; do
+    _found=0
+    for _p in "${_prefix}1" "${_prefix}2"; do
+      if [ -b "$_p" ] && grep -qE "[[:space:]]$(basename "$_p")$" /proc/partitions; then
+        _found=$((_found + 1))
       fi
-      _tries=$((_tries + 1))
     done
+    [ "$_found" -eq 2 ] && break
+    blockdev --rereadpt "$DISK" >>"$LOG" 2>&1 || true
+    partx --add --nr 1:2 "$DISK" >>"$LOG" 2>&1 || true
+    udevadm settle >>"$LOG" 2>&1 || true
+    sleep 0.2
+    _tries=$((_tries + 1))
+  done
+
+  # Direct node creation fallback: some live ISOs do not spawn udev events.
+  for _p in "${_prefix}1" "${_prefix}2"; do
+    if [ ! -e "$_p" ] && [ -r "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev" ]; then
+      local _mj _mn
+      IFS=: read -r _mj _mn < "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev"
+      mknod "$_p" b "$_mj" "$_mn" 2>/dev/null || true
+    fi
   done
 
   # File Scope: part2 Is Read Back In write_keyfiles And install_grub (crypttab
@@ -380,8 +399,8 @@ partition_disk() {
     part1="${DISK}1"; part2="${DISK}2"; part3="${DISK}3"
   fi
 
-  [ -e "$part1" ] || die "ESP Partition Node $part1 Did Not Appear — See $LOG."
-  [ -e "$part2" ] || die "LUKS Partition Node $part2 Did Not Appear — See $LOG."
+  [ -b "$part1" ] || die "ESP Partition Node $part1 Did Not Appear As a Block Device — See $LOG."
+  [ -b "$part2" ] || die "LUKS Partition Node $part2 Did Not Appear As a Block Device — See $LOG."
 
   # Wipe any leftover signatures (LUKS, Btrfs, LVM) from the previous install so
   # cryptsetup luksFormat cannot be confused by a stale header at the same offset.
@@ -390,8 +409,11 @@ partition_disk() {
   mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1 \
     || die "mkfs.fat Failed For $part1 — See $LOG."
 
-  # Pre-load crypto modules so luksFormat/open don't fail silently on a bare
-  # live kernel (matches the Artix FDE guide's `cryptsetup benchmark` step).
+  # Pre-load crypto and device-mapper modules so luksFormat/open don't fail
+  # silently on a bare live kernel (matches the Artix FDE guide's
+  # `cryptsetup benchmark` step). NVMe + some live media need dm_mod/dm_crypt
+  # explicitly loaded before the mapping is created.
+  modprobe dm_mod dm_crypt 2>/dev/null || true
   cryptsetup benchmark >>"$LOG" 2>&1 || true
 
   # Pick a PBKDF the live kernel actually supports. Argon2id is preferred but
@@ -417,12 +439,26 @@ partition_disk() {
   log "LUKS2 created with PBKDF: $pbdf"
 
   log "Opening LUKS Container"
+  # If a previous run left the dm mapping in an odd state, remove it first.
+  if [ -e /dev/mapper/cryptsystem ]; then
+    cryptsetup close cryptsystem 2>>"$LOG" || dmsetup remove cryptsystem 2>>"$LOG" || true
+    sleep 0.2
+  fi
   local crypt_rc
   printf '%s' "$LUKS_PW" | cryptsetup open --type luks2 \
     --key-file - "$part2" cryptsystem >>"$LOG" 2>&1 || crypt_rc=$?
   if [ "${crypt_rc:-0}" -ne 0 ]; then
     echo "cryptsetup open exit code: ${crypt_rc:-0}" >>"$LOG"
-    die "cryptsetup open Failed For $part2 — See $LOG."
+    # Last-ditch: the kernel sometimes rejects the first dm reload on NVMe
+    # because of stale ioctl state; wait a moment and retry once.
+    sleep 1
+    crypt_rc=0
+    printf '%s' "$LUKS_PW" | cryptsetup open --type luks2 \
+      --key-file - "$part2" cryptsystem >>"$LOG" 2>&1 || crypt_rc=$?
+    if [ "$crypt_rc" -ne 0 ]; then
+      echo "cryptsetup open retry exit code: $crypt_rc" >>"$LOG"
+      die "cryptsetup open Failed For $part2 — See $LOG."
+    fi
   fi
   part3="/dev/mapper/cryptsystem"
 
