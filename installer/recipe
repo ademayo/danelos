@@ -377,13 +377,27 @@ partition_disk() {
   # live kernel (matches the Artix FDE guide's `cryptsetup benchmark` step).
   cryptsetup benchmark >>"$LOG" 2>&1 || true
 
-  # Argon2id can default to hundreds of MiB and cause an OOM/hang on low-RAM
-  # live media. Cap memory cost to 128 MiB; cryptsetup benchmark will tune the
-  # iteration count around that limit. Still stronger than pbkdf2.
-  log "Encrypting $part2 (LUKS2, Argon2id, 128 MiB Memory Cap)"
-  printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
-    --pbkdf argon2id --pbkdf-memory 131072 --batch-mode --key-file - "$part2" >>"$LOG" 2>&1 \
-    || die "cryptsetup luksFormat Failed For $part2 — See $LOG."
+  # Pick a PBKDF the live kernel actually supports. Argon2id is preferred but
+  # can fail on older kernels/live media with "device-mapper ioctl invalid
+  # option"; fall back to argon2i and then pbkdf2 so the install never gets
+  # stuck on compatibility issues. Memory cap prevents OOM on low-RAM ISOs.
+  local pbdf="argon2id"
+  log "Encrypting $part2 (LUKS2, probing PBKDF compat)"
+  if ! printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
+       --pbkdf argon2id --pbkdf-memory 131072 --batch-mode --key-file - "$part2" >>"$LOG" 2>&1; then
+    log "argon2id failed; trying argon2i"
+    if printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
+         --pbkdf argon2i --pbkdf-memory 131072 --batch-mode --key-file - "$part2" >>"$LOG" 2>&1; then
+      pbdf="argon2i"
+    else
+      log "argon2i failed; using pbkdf2"
+      printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
+        --pbkdf pbkdf2 --batch-mode --key-file - "$part2" >>"$LOG" 2>&1 \
+        || die "cryptsetup luksFormat Failed For $part2 With All PBKDFs — See $LOG."
+      pbdf="pbkdf2"
+    fi
+  fi
+  log "LUKS2 created with PBKDF: $pbdf"
 
   log "Opening LUKS Container"
   local crypt_rc
