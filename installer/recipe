@@ -362,9 +362,9 @@ partition_disk() {
 
   log "Encrypting $part2 (LUKS2, Argon2id)"
   printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
-    --pbkdf argon2id --batch-mode "$part2" >>"$LOG" 2>&1
+    --pbkdf argon2id --batch-mode --key-file - "$part2" >>"$LOG" 2>&1
   log "Opening LUKS Container"
-  printf '%s' "$LUKS_PW" | cryptsetup open "$part2" cryptsystem >>"$LOG" 2>&1
+  printf '%s' "$LUKS_PW" | cryptsetup open --type luks2 --key-file - "$part2" cryptsystem >>"$LOG" 2>&1
   part3="/dev/mapper/cryptsystem"
 
   log "Creating Btrfs Subvolumes @ And @home"
