@@ -71,10 +71,11 @@ ensure_deps() {
   # basestrap/artix-chroot/fstabgen Ship On Every Artix Live ISO (artools-base,
   # Dependency Of artix-live-base). whiptail/git Are On the Stock base-dinit
   # ISO; Anything Else Gets Pulled From the Repos.
-  # sgdisk (gptfdisk) Isn't On the Base ISO — Always Install It. The Rest Only
-  # When Missing. Failure Dies Loudly Here Instead of At the First sgdisk Call.
-  pacman -Sy --noconfirm --needed gptfdisk >>"$LOG" 2>&1 \
-    || die "gptfdisk Install Failed — Check $LOG And Your Network Connection."
+  # sgdisk (gptfdisk) And cryptsetup Aren't On the Base ISO — Always Install
+  # Them. The Rest Only When Missing. Failure Dies Loudly Here Instead of At
+  # The First sgdisk/cryptsetup Call.
+  pacman -Sy --noconfirm --needed gptfdisk cryptsetup >>"$LOG" 2>&1 \
+    || die "gptfdisk/cryptsetup Install Failed — Check $LOG And Your Network Connection."
   local missing=()
   for c in whiptail vim git; do
     command -v "$c" >/dev/null 2>&1 || missing+=("$c")
@@ -84,8 +85,8 @@ ensure_deps() {
     pacman -Sy --noconfirm --needed libnewt vim git >>"$LOG" 2>&1 \
       || die "ISO Tools Install Failed (${missing[*]}) — Check $LOG."
   fi
-  for c in whiptail sgdisk basestrap artix-chroot fstabgen git; do
-    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Artools-Base, Git First."
+  for c in whiptail sgdisk cryptsetup basestrap artix-chroot fstabgen git; do
+    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Cryptsetup, Artools-Base, Git First."
   done
 }
 
@@ -325,6 +326,10 @@ Locale: $LOCALE    Timezone: $TIMEZONE
 
 Proceed?" 18 70 || { log "Aborted At Confirmation."; exit 1; }
   sync
+}
+
+partition_disk() {
+  step "Partitioning And Opening LUKS Container"
 
   sgdisk --zap-all "$DISK" >>"$LOG" 2>&1
   # Two Partitions: EFI + One Encrypted Container. Swap Becomes a Btrfs
@@ -350,6 +355,10 @@ Proceed?" 18 70 || { log "Aborted At Confirmation."; exit 1; }
   fi
 
   mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1
+
+  # Pre-load crypto modules so luksFormat/open don't fail silently on a bare
+  # live kernel (matches the Artix FDE guide's `cryptsetup benchmark` step).
+  cryptsetup benchmark >>"$LOG" 2>&1 || true
 
   log "Encrypting $part2 (LUKS2, Argon2id)"
   printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
@@ -529,32 +538,52 @@ install_grub() {
   step "Installing GRUB"
   # Initramfs: Btrfs + encrypt + keyboard/keymap Hooks (Disk Is Always LUKS2).
   # encrypt Runs the Passphrase Prompt Once — No Re-entry At the Greeter.
-  # encrypt Must Precede block/filesystems. keyboard+keymap Let the
-  # Initramfs Prompt Honor Non-US Keymaps (Artix Ships keyboard Already).
-  sed -i -E 's/^HOOKS=\((.*)block(.*)\)$/HOOKS=(\1keymap encrypt block\2)/' /mnt/etc/mkinitcpio.conf
-  grep -qs '^HOOKS=.*encrypt' /mnt/etc/mkinitcpio.conf || \
-    sed -i 's/^HOOKS=(\(.*\))/HOOKS=(\1 keyboard keymap encrypt)/' /mnt/etc/mkinitcpio.conf
-  grep -qs '^HOOKS=.*keymap' /mnt/etc/mkinitcpio.conf || \
-    sed -i 's/^HOOKS=\((.*)encrypt\)/HOOKS=(\1keymap encrypt)/' /mnt/etc/mkinitcpio.conf
-  sed -i 's/^MODULES=()/MODULES=(btrfs)/' /mnt/etc/mkinitcpio.conf
-  grep -qs '^MODULES=.*btrfs' /mnt/etc/mkinitcpio.conf || \
-    sed -i 's/^MODULES=(\(.*\))/MODULES=(btrfs \1)/' /mnt/etc/mkinitcpio.conf
+  # encrypt Must Come After block, Before filesystems.
+  # keyboard/keymap/consolefont Let the Initramfs Prompt Honor Non-US Keymaps.
+  # Replace the entire HOOKS line with the Artix FDE standard order.
+  # encrypt must sit between block and filesystems; keyboard/keymap/consolefont
+  # make the passphrase prompt honor the chosen console keymap.
+  sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block keyboard keymap consolefont encrypt filesystems fsck)/' /mnt/etc/mkinitcpio.conf
+  grep -qs '^HOOKS=' /mnt/etc/mkinitcpio.conf || \
+    echo 'HOOKS=(base udev autodetect modconf block keyboard keymap consolefont encrypt filesystems fsck)' >> /mnt/etc/mkinitcpio.conf
+
+  # btrfs module must be in the initramfs so the root subvolume is mountable.
+  if ! grep -qs '^MODULES=.*\bbtrfs\b' /mnt/etc/mkinitcpio.conf; then
+    if grep -qs '^MODULES=()' /mnt/etc/mkinitcpio.conf; then
+      sed -i 's/^MODULES=()/MODULES=(btrfs)/' /mnt/etc/mkinitcpio.conf
+    else
+      sed -i -E 's/^MODULES=\((.*)\)$/MODULES=(btrfs \1)/' /mnt/etc/mkinitcpio.conf
+    fi
+  fi
+
+  # Regenerate initramfs with the encrypt/btrfs hooks before installing GRUB.
+  # The Artix FDE guide does this explicitly; otherwise the kernel cannot
+  # unlock the root partition on first boot.
+  artix-chroot $MNT mkinitcpio -P >>"$LOG" 2>&1 \
+    || die "mkinitcpio Failed — See $LOG."
 
   local luksuuid
   luksuuid=$(cryptsetup luksUUID "$part2")
   artix-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
-    --bootloader-id=Artix --recheck >>"$LOG" 2>&1
+    --bootloader-id=Artix --recheck >>"$LOG" 2>&1 \
+    || die "grub-install Failed — See $LOG."
   # Kernel Cmdline Points the encrypt Hook At the Container By UUID.
   sed -i "s|GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luksuuid:cryptsystem root=/dev/mapper/cryptsystem\"|" \
     /mnt/etc/default/grub
-  artix-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
+  # Allow GRUB to read encrypted devices if /boot ever moves onto the LUKS volume.
+  sed -i 's/^#GRUB_ENABLE_CRYPTODISK=y/GRUB_ENABLE_CRYPTODISK=y/; s/^GRUB_ENABLE_CRYPTODISK=.*/GRUB_ENABLE_CRYPTODISK=y/' /mnt/etc/default/grub
+  artix-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1 \
+    || die "grub-mkconfig Failed — See $LOG."
 }
 
 enable_services() {
+  # dinit boot.d must exist before we link services into it.
+  install -d -m755 /mnt/etc/dinit.d/boot.d
+
   # ufw Is Mandatory — Its dinit Service Runs `ufw enable` At Every Boot.
   for svc in NetworkManager ufw bluetoothd avahi-daemon sshd cronie sddm userspawn; do
     if [ -e "/mnt/etc/dinit.d/$svc" ]; then
-      ln -sfn "/mnt/etc/dinit.d/$svc" "/mnt/etc/dinit.d/boot.d/$svc" 2>/dev/null || true
+      ln -sfn "/etc/dinit.d/$svc" "/mnt/etc/dinit.d/boot.d/$svc" 2>/dev/null || true
     fi
   done
   # User dinit Services (pipewire, dbus) Via userspawn
@@ -562,7 +591,7 @@ enable_services() {
   if [ -d "$home_dir" ]; then
     install -d -m755 "$home_dir/.config/dinit.d/boot.d"
     for s in dbus pipewire pipewire-pulse wireplumber; do
-      [ -e "/mnt/etc/dinit.d/user/$s" ] && ln -sfn "/mnt/etc/dinit.d/user/$s" "$home_dir/.config/dinit.d/boot.d/$s"
+      [ -e "/mnt/etc/dinit.d/user/$s" ] && ln -sfn "/etc/dinit.d/user/$s" "$home_dir/.config/dinit.d/boot.d/$s"
     done
     chown -R "$(stat -c %u /mnt/home/$USERNAME)" "$home_dir/.config"
   fi
@@ -661,6 +690,7 @@ main() {
   partition_disk
   write_keyfiles
   basestrap_target
+  configure_users
   make_fstab
   enable_services
   deploy_configs
