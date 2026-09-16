@@ -28,8 +28,8 @@ with stock session entries and bootloader settings throughout.
 | Audio      | pipewire + wireplumber + pipewire-pulse (dinit user services) + pipewire-jack, pavucontrol-qt mixer |
 | Power/lock | wlogout menu, hyprlock, hypridle (10/15/30 min timeouts)       |
 | Language   | 30-locale picker at install time (ISO locale preselected)      |
-| Encryption | Optional LUKS2 (Argon2id) on the System partition; swap lives inside the encrypted volume as a Btrfs swapfile; one passphrase at boot |
-| Firewall   | Optional ufw (dinit service) — default deny incoming, allow outgoing |
+| Encryption | Mandatory LUKS2 (Argon2id) on the System partition; swap lives inside the encrypted volume as a Btrfs swapfile; one passphrase at boot |
+| Firewall   | Mandatory ufw (dinit service) — default deny incoming, allow outgoing |
 
 Everything else stays deliberately minimal.
 
@@ -76,18 +76,8 @@ supplicant running in the foreground instead of backgrounding with `-B`,
 run it in a second terminal (or TTY) and keep it there while you install.
 
 The installer asks for hostname, name, username, root/user passwords, system
-language, timezone, and whether to enable LUKS2 encryption and the ufw
-firewall, then partitions the selected disk as:
-
-Unencrypted:
-
-| # | Partition | Size     | FS     | Label  |
-|---|-----------|----------|--------|--------|
-| 1 | EFI       | 512 MiB  | FAT32  | BOOT   |
-| 2 | Swap      | 4 GiB    | swap   | Swap   |
-| 3 | Root      | rest     | Btrfs  | System (subvolumes `@` + `@home`) |
-
-Encrypted (LUKS2, Argon2id):
+language, timezone, and a disk passphrase (encryption is mandatory), then
+partitions the selected disk as:
 
 | # | Partition | Size     | FS     | Label  |
 |---|-----------|----------|--------|--------|
@@ -96,10 +86,8 @@ Encrypted (LUKS2, Argon2id):
 
 Then it bootstraps Artix + dinit (`basestrap`), installs the desktop, creates the user
 (wheel/audio/video/storage + friends, sudo enabled), installs GRUB and
-configures the Hyprland session via SDDM. With encryption on, the disk
-passphrase is asked once at boot (initramfs `encrypt` hook) — the greeter
-does not re-ask it.
-
+configures the Hyprland session via SDDM. The disk passphrase is asked once
+at boot (initramfs `encrypt` hook) — the greeter does not re-ask it.
 
 ## Keyboard Shortcuts
 
@@ -168,7 +156,7 @@ User services (via userspawn): `dbus`, `pipewire`, `pipewire-pulse`,
 - Greeter theme: bundled `system/sddm/themes/arc-dark` QML, palette-matched
   to the desktop (`#2b2e34` card, `#5294e2` steel-blue accent, `#383c43`
   fields). Overrides live in `/etc/sddm.conf.d/danelos.conf`.
-- ufw firewall (optional at install): default deny incoming / allow
+- ufw firewall (mandatory at install): default deny incoming / allow
   outgoing, IPv6 on, loopback + DHCP exempt. Enabled at boot by `ufw-dinit`.
 - Wallpapers are from Pexels (free license, see `wallpapers/ATTRIBUTION.txt`).
 - To change wallpaper: edit `~/.config/hypr/hyprpaper.conf` (and

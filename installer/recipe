@@ -175,28 +175,19 @@ ask_questions() {
   LOCALE=$(whiptail "${loc_opts[@]}" --menu "System Language (Locale):" 28 68 "$loc_menu_height" \
     "${locales[@]}" \
     --title "Artix — Language" 3>&1 1>&2 2>&3) || exit 1
-
-  # Encryption: Optional LUKS2 On the System Partition. The Disk Passphrase
+  # Encryption: Mandatory LUKS2 On the System Partition. The Disk Passphrase
   # Is Asked Once At Boot (Initramfs Unlock — GRUB Can't Do LUKS2/Argon2id
   # Natively). Swap Moves Inside the Encrypted Volume As a Btrfs Swapfile,
   # So It's Encrypted Too.
-  ENCRYPT=$(whiptail --yesno --defaultyes \
-    "Encrypt The System Partition (LUKS2)?" 10 50 \
-    --title "Artix — Encryption" 3>&1 1>&2 2>&3) && ENCRYPT=yes || ENCRYPT=no
-  if [ "$ENCRYPT" = yes ]; then
-    while :; do
-      LUKS_PW=$(whiptail --passwordbox "Disk Passphrase (Asked Once At Boot):" 10 60 "" \
-        --title "Artix — LUKS Passphrase" 3>&1 1>&2 2>&3) || exit 1
-      LUKS_PW2=$(whiptail --passwordbox "Repeat Passphrase:" 10 60 "" 3>&1 1>&2 2>&3) || exit 1
-      [ -n "$LUKS_PW" ] && [ "$LUKS_PW" = "$LUKS_PW2" ] && break
-      whiptail --msgbox "Passphrases Empty Or Do Not Match." 8 45
-    done
-  fi
-
-  # Firewall: ufw Enabled At Boot, Default Deny Incoming / Allow Outgoing.
-  ENABLE_UFW=$(whiptail --yesno --defaultyes \
-    "Enable ufw Firewall?\n(Deny Incoming, Allow Outgoing)" 10 50 \
-    --title "Artix — Firewall" 3>&1 1>&2 2>&3) && ENABLE_UFW=yes || ENABLE_UFW=no
+  whiptail --msgbox "This Install Is Fully Encrypted (LUKS2).\nYou Will Now Pick a Disk Passphrase — You'll Type It\nOnce At Every Boot, Before the Login Screen." 11 60 \
+    --title "Artix — Disk Encryption" 3>&1 1>&2 2>&3 || exit 1
+  while :; do
+    LUKS_PW=$(whiptail --passwordbox "Disk Passphrase (Asked Once At Boot):" 10 60 "" \
+      --title "Artix — LUKS Passphrase" 3>&1 1>&2 2>&3) || exit 1
+    LUKS_PW2=$(whiptail --passwordbox "Repeat Passphrase:" 10 60 "" 3>&1 1>&2 2>&3) || exit 1
+    [ -n "$LUKS_PW" ] && [ "$LUKS_PW" = "$LUKS_PW2" ] && break
+    whiptail --msgbox "Passphrases Empty Or Do Not Match." 8 45
+  done
 
   # Zone list: one entry per country plus split regions where a country
   # spans several zones. Validated against /usr/share/zoneinfo at build time.
@@ -319,10 +310,7 @@ select_disk() {
   size=$(lsblk -dn -o SIZE "$DISK")
   model=$(lsblk -dn -o MODEL "$DISK" | xargs)
 
-  local layout="  1  EFI System   512 MiB  FAT32  BOOT
-  2  Linux Swap     4 GiB         Swap
-  3  Linux Root   Rest     Btrfs  System  (@ And @home Subvolumes)"
-  [ "$ENCRYPT" = yes ] && layout="  1  EFI System   512 MiB  FAT32  BOOT (Unencrypted)
+  local layout="  1  EFI System   512 MiB  FAT32  BOOT (Unencrypted)
   2  Linux Root   Rest     LUKS2  cryptsystem
      └ Btrfs     Rest            System  (@ And @home Subvolumes, Encrypted Swapfile)"
 
@@ -331,33 +319,18 @@ select_disk() {
 
 $layout
 
-$( [ "$ENCRYPT" = yes ] && echo "LUKS2 Encryption: ON — Disk Passphrase At Boot." || echo "LUKS2 Encryption: OFF." )
-$( [ "$ENABLE_UFW" = yes ] && echo "Firewall: ufw ON (Deny Incoming)." || echo "Firewall: ufw OFF." )
+LUKS2 Encryption: ON — Disk Passphrase At Boot.
+Firewall: ufw ON (Deny Incoming).
 Locale: $LOCALE    Timezone: $TIMEZONE
 
 Proceed?" 18 70 || { log "Aborted At Confirmation."; exit 1; }
-}
-
-# ----------------------------------------------------------------------------
-# Partition, Format, Mount
-# ----------------------------------------------------------------------------
-partition_disk() {
-  step "Wiping And Partitioning $DISK"
-  swapoff -a 2>/dev/null || true
-  umount -R "$MNT" 2>/dev/null || true
   sync
 
   sgdisk --zap-all "$DISK" >>"$LOG" 2>&1
-  if [ "$ENCRYPT" = yes ]; then
-    # Two Partitions: EFI + One Encrypted Container. Swap Becomes a Btrfs
-    # Swapfile Inside the Encrypted Volume — Encrypted With Everything Else.
-    sgdisk -n 1:0:+512M -t 1:ef00 -c 1:BOOT "$DISK" >>"$LOG" 2>&1
-    sgdisk -n 2:0:0     -t 2:8304 -c 2:cryptsystem "$DISK" >>"$LOG" 2>&1
-  else
-    sgdisk -n 1:0:+512M -t 1:ef00 -c 1:BOOT "$DISK" >>"$LOG" 2>&1
-    sgdisk -n 2:0:+4G   -t 2:8200 -c 2:Swap "$DISK" >>"$LOG" 2>&1
-    sgdisk -n 3:0:0     -t 3:8300 -c 3:System "$DISK" >>"$LOG" 2>&1
-  fi
+  # Two Partitions: EFI + One Encrypted Container. Swap Becomes a Btrfs
+  # Swapfile Inside the Encrypted Volume — Encrypted With Everything Else.
+  sgdisk -n 1:0:+512M -t 1:ef00 -c 1:BOOT "$DISK" >>"$LOG" 2>&1
+  sgdisk -n 2:0:0     -t 2:8304 -c 2:cryptsystem "$DISK" >>"$LOG" 2>&1
   partx -a "$DISK" >>"$LOG" 2>&1 || true   # Ensure Partition Nodes Exist
   # Fallback For Environments Where udev Doesn't Populate Partition Nodes (Rare)
   local _p _node _mj _mn
@@ -378,16 +351,12 @@ partition_disk() {
 
   mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1
 
-  if [ "$ENCRYPT" = yes ]; then
-    log "Encrypting $part2 (LUKS2, Argon2id)"
-    printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
-      --pbkdf argon2id --batch-mode "$part2" >>"$LOG" 2>&1
-    log "Opening LUKS Container"
-    printf '%s' "$LUKS_PW" | cryptsetup open "$part2" cryptsystem >>"$LOG" 2>&1
-    part3="/dev/mapper/cryptsystem"
-  fi
-
-  mkfs.btrfs -f -L System "$part3" >>"$LOG" 2>&1
+  log "Encrypting $part2 (LUKS2, Argon2id)"
+  printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
+    --pbkdf argon2id --batch-mode "$part2" >>"$LOG" 2>&1
+  log "Opening LUKS Container"
+  printf '%s' "$LUKS_PW" | cryptsetup open "$part2" cryptsystem >>"$LOG" 2>&1
+  part3="/dev/mapper/cryptsystem"
 
   log "Creating Btrfs Subvolumes @ And @home"
   mount "$part3" $MNT
@@ -401,18 +370,12 @@ partition_disk() {
   mount "$part1" /mnt/boot
   mount -o subvol=/@home,compress=zstd "$part3" /mnt/home
 
-  if [ "$ENCRYPT" = yes ]; then
-    # 4 GiB Encrypted Swapfile (mkswapfile Sets NOCOW — Required For swapon)
-    log "Creating 4 GiB Encrypted Swapfile"
-    btrfs filesystem mkswapfile --size 4g --uuid clear /mnt/swap/swapfile >>"$LOG" 2>&1
-    [ -s /mnt/swap/swapfile ] || die "Swapfile Creation Failed — See $LOG."
-    chmod 0600 /mnt/swap/swapfile
-    swapon /mnt/swap/swapfile || die "swapon Failed For Encrypted Swapfile — See $LOG."
-    SWAPFILE=/swap/swapfile
-  else
-    mkswap -L Swap "$part2" >>"$LOG" 2>&1
-    swapon "$part2"
-  fi
+  # 4 GiB Encrypted Swapfile (mkswapfile Sets NOCOW — Required For swapon)
+  log "Creating 4 GiB Encrypted Swapfile"
+  btrfs filesystem mkswapfile --size 4g --uuid clear /mnt/swap/swapfile >>"$LOG" 2>&1
+  [ -s /mnt/swap/swapfile ] || die "Swapfile Creation Failed — See $LOG."
+  chmod 0600 /mnt/swap/swapfile
+  swapon /mnt/swap/swapfile || die "swapon Failed For Encrypted Swapfile — See $LOG."
 }
 
 # ----------------------------------------------------------------------------
@@ -421,7 +384,6 @@ partition_disk() {
 write_keyfiles() {
   step "Writing System Key Files"
   mkdir -p /mnt/etc
-  printf '%s\n' "$HOSTNAME" > /mnt/etc/hostname
   cat > /mnt/etc/hosts <<EOF
 127.0.0.1  localhost
 ::1        localhost
@@ -447,13 +409,11 @@ locale-gen
 
   # LUKS: crypttab So the Root Container Is Openable Post-boot (e.g. LVM /
   # Rescue), Though the Initramfs Hook Is the Real Unlock Path.
-  if [ "$ENCRYPT" = yes ]; then
-    local luksuuid
-    luksuuid=$(cryptsetup luksUUID "$part2")
-    echo "cryptsystem UUID=$luksuuid none luks,discard" > /mnt/etc/crypttab
-    # Initramfs Unlock Config: Ask For the Passphrase Once At Boot.
-    echo "cryptsystem UUID=$luksuuid" > /mnt/etc/crypttab.initramfs
-  fi
+  local luksuuid
+  luksuuid=$(cryptsetup luksUUID "$part2")
+  echo "cryptsystem UUID=$luksuuid none luks,discard" > /mnt/etc/crypttab
+  # Initramfs Unlock Config: Ask For the Passphrase Once At Boot.
+  echo "cryptsystem UUID=$luksuuid" > /mnt/etc/crypttab.initramfs
 }
 
 # ----------------------------------------------------------------------------
@@ -472,10 +432,8 @@ basestrap_target() {
     esac
   done < "$SRC/packages/base.packages"
 
-  # Conditional Extras: LUKS (cryptsetup For crypttab + luksUUID), ufw.
-  local -a extra_pkgs=()
-  [ "$ENCRYPT" = yes ] && extra_pkgs+=(cryptsetup)
-  [ "$ENABLE_UFW" = yes ] && extra_pkgs+=(ufw ufw-dinit iptables)
+  # Mandatory Extras: LUKS (cryptsetup For crypttab + luksUUID), ufw.
+  local -a extra_pkgs=(cryptsetup ufw ufw-dinit iptables)
 
   pacman -Sy archlinux-keyring artix-keyring >>"$LOG" 2>&1 || true
   basestrap -K $MNT base base-devel linux linux-firmware linux-headers \
@@ -530,20 +488,11 @@ make_fstab() {
   mkdir -p /mnt/etc
   fstabgen -U $MNT > /mnt/etc/fstab
 
-  # fstabgen Can Pick Up the ISO's Own Swap Entry; Keep Only Target-Disk Lines
-  if [ "$ENCRYPT" = yes ]; then
-    # Swapfile Lives On the Encrypted Btrfs; Plain Directory On the Root Subvol.
-    grep -v 'swap' /mnt/etc/fstab > /tmp/fstab.clean
-    echo "/swap/swapfile none swap defaults 0 0" >> /tmp/fstab.clean
-    mv /tmp/fstab.clean /mnt/etc/fstab
-  else
-    local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]] && swappart="${DISK}p2"
-    local swapuuid
-    swapuuid=$(lsblk -no UUID "$swappart")
-    grep -v 'swap' /mnt/etc/fstab > /tmp/fstab.clean
-    echo "UUID=$swapuuid none swap defaults 0 0" >> /tmp/fstab.clean
-    mv /tmp/fstab.clean /mnt/etc/fstab
-  fi
+  # fstabgen Can Pick Up the ISO's Own Swap Entry; Keep Only Target-Disk Lines.
+  # Swapfile Lives On the Encrypted Btrfs; Plain Directory On the Root Subvol.
+  grep -v 'swap' /mnt/etc/fstab > /tmp/fstab.clean
+  echo "/swap/swapfile none swap defaults 0 0" >> /tmp/fstab.clean
+  mv /tmp/fstab.clean /mnt/etc/fstab
 
   # Normalize Btrfs Options: Add Compression, Keep subvol
   grep -qs 'compress=zstd' /mnt/etc/fstab || \
@@ -578,53 +527,45 @@ configure_users() {
 
 install_grub() {
   step "Installing GRUB"
-  # Initramfs: Btrfs Always; encrypt + keyboard/keymap Hooks When the Disk Is LUKS2.
+  # Initramfs: Btrfs + encrypt + keyboard/keymap Hooks (Disk Is Always LUKS2).
   # encrypt Runs the Passphrase Prompt Once — No Re-entry At the Greeter.
-  if [ "$ENCRYPT" = yes ]; then
-    # encrypt Must Precede block/filesystems. keyboard+keymap Let the
-    # Initramfs Prompt Honor Non-US Keymaps (Artix Ships keyboard Already).
-    sed -i -E 's/^HOOKS=\((.*)block(.*)\)$/HOOKS=(\1keymap encrypt block\2)/' /mnt/etc/mkinitcpio.conf
-    grep -qs '^HOOKS=.*encrypt' /mnt/etc/mkinitcpio.conf || \
-      sed -i 's/^HOOKS=(\(.*\))/HOOKS=(\1 keyboard keymap encrypt)/' /mnt/etc/mkinitcpio.conf
-    grep -qs '^HOOKS=.*keymap' /mnt/etc/mkinitcpio.conf || \
-      sed -i 's/^HOOKS=\((.*)encrypt\)/HOOKS=(\1keymap encrypt)/' /mnt/etc/mkinitcpio.conf
-  fi
+  # encrypt Must Precede block/filesystems. keyboard+keymap Let the
+  # Initramfs Prompt Honor Non-US Keymaps (Artix Ships keyboard Already).
+  sed -i -E 's/^HOOKS=\((.*)block(.*)\)$/HOOKS=(\1keymap encrypt block\2)/' /mnt/etc/mkinitcpio.conf
+  grep -qs '^HOOKS=.*encrypt' /mnt/etc/mkinitcpio.conf || \
+    sed -i 's/^HOOKS=(\(.*\))/HOOKS=(\1 keyboard keymap encrypt)/' /mnt/etc/mkinitcpio.conf
+  grep -qs '^HOOKS=.*keymap' /mnt/etc/mkinitcpio.conf || \
+    sed -i 's/^HOOKS=\((.*)encrypt\)/HOOKS=(\1keymap encrypt)/' /mnt/etc/mkinitcpio.conf
   sed -i 's/^MODULES=()/MODULES=(btrfs)/' /mnt/etc/mkinitcpio.conf
   grep -qs '^MODULES=.*btrfs' /mnt/etc/mkinitcpio.conf || \
     sed -i 's/^MODULES=(\(.*\))/MODULES=(btrfs \1)/' /mnt/etc/mkinitcpio.conf
 
-  if [ "$ENCRYPT" = yes ]; then
-    local luksuuid
-    luksuuid=$(cryptsetup luksUUID "$part2")
-    artix-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
-      --bootloader-id=Artix --recheck >>"$LOG" 2>&1
-    # Kernel Cmdline Points the encrypt Hook At the Container By UUID.
-    sed -i "s|GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luksuuid:cryptsystem root=/dev/mapper/cryptsystem\"|" \
-      /mnt/etc/default/grub
-    artix-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
-  else
-    artix-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
-      --bootloader-id=Artix --recheck >>"$LOG" 2>&1
-    artix-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
-  fi
+  local luksuuid
+  luksuuid=$(cryptsetup luksUUID "$part2")
+  artix-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
+    --bootloader-id=Artix --recheck >>"$LOG" 2>&1
+  # Kernel Cmdline Points the encrypt Hook At the Container By UUID.
+  sed -i "s|GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luksuuid:cryptsystem root=/dev/mapper/cryptsystem\"|" \
+    /mnt/etc/default/grub
+  artix-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1
 }
 
 enable_services() {
-  step "Enabling Services (dinit)"
-  for svc in NetworkManager bluetoothd avahi-daemon sshd cronie sddm userspawn; do
+  # ufw Is Mandatory — Its dinit Service Runs `ufw enable` At Every Boot.
+  for svc in NetworkManager ufw bluetoothd avahi-daemon sshd cronie sddm userspawn; do
     if [ -e "/mnt/etc/dinit.d/$svc" ]; then
       ln -sfn "/mnt/etc/dinit.d/$svc" "/mnt/etc/dinit.d/boot.d/$svc" 2>/dev/null || true
     fi
   done
-  # User dinit Services Via userspawn: pipewire Stack Needs Explicit Enable
-  # (dbus-dinit-user Auto-Enables Itself Via /usr/lib/dinit.d/user/boot.d).
-  # Link From /etc/dinit.d/user Into userspawn's Global User boot.d — Applies
-  # To Every User, No Home-Dir Chown Dance.
-  install -d -m755 /mnt/etc/xdg/userspawn/dinit.d/boot.d
-  for s in pipewire pipewire-pulse wireplumber; do
-    [ -e "/mnt/etc/dinit.d/user/$s" ] && \
-      ln -sfn "/mnt/etc/dinit.d/user/$s" "/mnt/etc/xdg/userspawn/dinit.d/boot.d/$s" || true
-  done
+  # User dinit Services (pipewire, dbus) Via userspawn
+  local home_dir="/mnt/home/$USERNAME"
+  if [ -d "$home_dir" ]; then
+    install -d -m755 "$home_dir/.config/dinit.d/boot.d"
+    for s in dbus pipewire pipewire-pulse wireplumber; do
+      [ -e "/mnt/etc/dinit.d/user/$s" ] && ln -sfn "/mnt/etc/dinit.d/user/$s" "$home_dir/.config/dinit.d/boot.d/$s"
+    done
+    chown -R "$(stat -c %u /mnt/home/$USERNAME)" "$home_dir/.config"
+  fi
   # Machine ID For dbus/elogind
   artix-chroot $MNT dbus-uuidgen --ensure >/dev/null 2>&1 || true
   [ -f /mnt/var/lib/dbus/machine-id ] && [ ! -f /mnt/etc/machine-id ] && \
@@ -668,7 +609,6 @@ deploy_configs() {
 }
 
 configure_firewall() {
-  [ "$ENABLE_UFW" = yes ] || return 0
   step "Configuring ufw Firewall"
   # Defaults: Deny Incoming, Allow Outgoing, Deny Routed. IPv6 On.
   sed -i 's/^ENABLED=no/ENABLED=yes/' /mnt/etc/ufw/ufw.conf
@@ -694,21 +634,9 @@ configure_firewall() {
 finish() {
   # Swap Off FIRST — An Active Swapfile Holds the Btrfs Mount And LUKS
   # Container Open, So umount/close Would Fail After It.
-  if [ "$ENCRYPT" = yes ]; then
-    swapoff /mnt/swap/swapfile 2>/dev/null || true
-  else
-    local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]] && swappart="${DISK}p2"
-    swapoff "$swappart" 2>/dev/null || true
-  fi
+  swapoff /mnt/swap/swapfile 2>/dev/null || true
   umount -R /mnt 2>/dev/null || true
-  if [ "$ENCRYPT" = yes ]; then
-    cryptsetup close cryptsystem 2>/dev/null || true
-  fi
-
-  local enc_note="LUKS2:      OFF"
-  [ "$ENCRYPT" = yes ] && enc_note="LUKS2:      ON — Disk Passphrase Asked Once At Boot"
-  local fw_note="Firewall:   ufw OFF"
-  [ "$ENABLE_UFW" = yes ] && fw_note="Firewall:   ufw ON — All Incoming Denied"
+  cryptsetup close cryptsystem 2>/dev/null || true
 
   whiptail --title "Artix — Done" --msgbox "Install Complete. Reboot, Pull the USB Stick, Done.
 
@@ -717,8 +645,8 @@ Hostname:  $HOSTNAME
 Timezone:  $TIMEZONE
 Locale:    $LOCALE
 Disk:      $DISK
-$enc_note
-$fw_note
+LUKS2:     ON — Disk Passphrase Asked Once At Boot
+Firewall:  ufw ON — All Incoming Denied
 
 Greeter → Login → Hyprland. Enjoy the Freedom." 17 60
 }
@@ -728,8 +656,11 @@ main() {
   banner
   : > "$LOG"
   ensure_deps
+  ask_questions
+  select_disk
+  partition_disk
+  write_keyfiles
   basestrap_target
-  configure_users
   make_fstab
   enable_services
   deploy_configs
