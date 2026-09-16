@@ -71,11 +71,11 @@ ensure_deps() {
   # basestrap/artix-chroot/fstabgen Ship On Every Artix Live ISO (artools-base,
   # Dependency Of artix-live-base). whiptail/git Are On the Stock base-dinit
   # ISO; Anything Else Gets Pulled From the Repos.
-  # sgdisk (gptfdisk) And cryptsetup Aren't On the Base ISO — Always Install
-  # Them. The Rest Only When Missing. Failure Dies Loudly Here Instead of At
-  # The First sgdisk/cryptsetup Call.
-  pacman -Sy --noconfirm --needed gptfdisk cryptsetup >>"$LOG" 2>&1 \
-    || die "gptfdisk/cryptsetup Install Failed — Check $LOG And Your Network Connection."
+  # sgdisk (gptfdisk) and cryptsetup aren't on the base ISO; util-linux is
+  # already present but re-ensure it for wipefs. Failure dies loudly here
+  # instead of at the first partition/crypto call.
+  pacman -Sy --noconfirm --needed gptfdisk cryptsetup util-linux >>"$LOG" 2>&1 \
+    || die "gptfdisk/cryptsetup/util-linux Install Failed — Check $LOG And Your Network Connection."
   local missing=()
   for c in whiptail vim git; do
     command -v "$c" >/dev/null 2>&1 || missing+=("$c")
@@ -85,8 +85,8 @@ ensure_deps() {
     pacman -Sy --noconfirm --needed libnewt vim git >>"$LOG" 2>&1 \
       || die "ISO Tools Install Failed (${missing[*]}) — Check $LOG."
   fi
-  for c in whiptail sgdisk cryptsetup basestrap artix-chroot fstabgen git; do
-    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Cryptsetup, Artools-Base, Git First."
+  for c in whiptail sgdisk cryptsetup wipefs basestrap artix-chroot fstabgen git; do
+    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Cryptsetup, Util-Linux, Artools-Base, Git First."
   done
 }
 
@@ -331,8 +331,16 @@ Proceed?" 18 70 || { log "Aborted At Confirmation."; exit 1; }
 partition_disk() {
   step "Partitioning And Opening LUKS Container"
 
-  # Zap and recreate GPT. Use --no-reread so sgdisk does not try to inform
-  # the kernel itself; we sync explicitly afterwards.
+  # Clean up leftovers from a previous aborted install. An active LUKS mapping
+  # or mounted target would make sgdisk/cryptsetup refuse to reuse the disk.
+  swapoff /mnt/swap/swapfile 2>/dev/null || true
+  umount -R /mnt 2>/dev/null || true
+  if [ -e /dev/mapper/cryptsystem ]; then
+    log "Closing stale cryptsystem mapping before repartitioning"
+    cryptsetup close cryptsystem 2>/dev/null || true
+  fi
+
+  # Zap and recreate GPT.
   sgdisk --zap-all "$DISK" >>"$LOG" 2>&1
   sgdisk -n 1:0:+512M -t 1:ef00 -c 1:BOOT "$DISK" >>"$LOG" 2>&1
   sgdisk -n 2:0:0     -t 2:8304 -c 2:cryptsystem "$DISK" >>"$LOG" 2>&1
@@ -341,8 +349,13 @@ partition_disk() {
   # appear. On a real disk this is fast; on loopback or slow media we retry.
   blockdev --rereadpt "$DISK" >>"$LOG" 2>&1 || true
   partx -u "$DISK" >>"$LOG" 2>&1 || true
-  local _p _node _mj _mn _tries
-  for _p in "$DISK"p1 "$DISK"p2 "$DISK"p3; do
+  local _p _node _mj _mn _tries _prefix
+  if [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]]; then
+    _prefix="${DISK}p"
+  else
+    _prefix="${DISK}"
+  fi
+  for _p in "${_prefix}1" "${_prefix}2"; do
     _tries=0
     while [ ! -e "$_p" ] && [ "$_tries" -lt 30 ]; do
       sleep 0.2
@@ -369,6 +382,10 @@ partition_disk() {
 
   [ -e "$part1" ] || die "ESP Partition Node $part1 Did Not Appear — See $LOG."
   [ -e "$part2" ] || die "LUKS Partition Node $part2 Did Not Appear — See $LOG."
+
+  # Wipe any leftover signatures (LUKS, Btrfs, LVM) from the previous install so
+  # cryptsetup luksFormat cannot be confused by a stale header at the same offset.
+  wipefs --all --force "$part2" >>"$LOG" 2>&1 || true
 
   mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1 \
     || die "mkfs.fat Failed For $part1 — See $LOG."
