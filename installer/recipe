@@ -331,20 +331,33 @@ Proceed?" 18 70 || { log "Aborted At Confirmation."; exit 1; }
 partition_disk() {
   step "Partitioning And Opening LUKS Container"
 
+  # Zap and recreate GPT. Use --no-reread so sgdisk does not try to inform
+  # the kernel itself; we sync explicitly afterwards.
   sgdisk --zap-all "$DISK" >>"$LOG" 2>&1
-  # Two Partitions: EFI + One Encrypted Container. Swap Becomes a Btrfs
-  # Swapfile Inside the Encrypted Volume — Encrypted With Everything Else.
   sgdisk -n 1:0:+512M -t 1:ef00 -c 1:BOOT "$DISK" >>"$LOG" 2>&1
   sgdisk -n 2:0:0     -t 2:8304 -c 2:cryptsystem "$DISK" >>"$LOG" 2>&1
-  partx -a "$DISK" >>"$LOG" 2>&1 || true   # Ensure Partition Nodes Exist
-  # Fallback For Environments Where udev Doesn't Populate Partition Nodes (Rare)
-  local _p _node _mj _mn
+
+  # Tell the kernel about the new partition table and wait until the nodes
+  # appear. On a real disk this is fast; on loopback or slow media we retry.
+  blockdev --rereadpt "$DISK" >>"$LOG" 2>&1 || true
+  partx -u "$DISK" >>"$LOG" 2>&1 || true
+  local _p _node _mj _mn _tries
   for _p in "$DISK"p1 "$DISK"p2 "$DISK"p3; do
-    [ -e "$_p" ] && continue
-    [ -r "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev" ] || continue
-    IFS=: read -r _mj _mn < "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev"
-    mknod "$_p" b "$_mj" "$_mn" 2>/dev/null || true
+    _tries=0
+    while [ ! -e "$_p" ] && [ "$_tries" -lt 30 ]; do
+      sleep 0.2
+      blockdev --rereadpt "$DISK" >>"$LOG" 2>&1 || true
+      partx -u "$DISK" >>"$LOG" 2>&1 || true
+      # Direct node creation fallback: some live ISOs do not spawn udev
+      # partition events for certain block devices.
+      if [ ! -e "$_p" ] && [ -r "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev" ]; then
+        IFS=: read -r _mj _mn < "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev"
+        [ -e "$_p" ] || mknod "$_p" b "$_mj" "$_mn" 2>/dev/null || true
+      fi
+      _tries=$((_tries + 1))
+    done
   done
+
   # File Scope: part2 Is Read Back In write_keyfiles And install_grub (crypttab
   # UUID + GRUB cryptdevice). Locals Die With This Function.
   part1=; part2=; part3=
@@ -354,18 +367,37 @@ partition_disk() {
     part1="${DISK}1"; part2="${DISK}2"; part3="${DISK}3"
   fi
 
-  mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1
+  [ -e "$part1" ] || die "ESP Partition Node $part1 Did Not Appear — See $LOG."
+  [ -e "$part2" ] || die "LUKS Partition Node $part2 Did Not Appear — See $LOG."
+
+  mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1 \
+    || die "mkfs.fat Failed For $part1 — See $LOG."
 
   # Pre-load crypto modules so luksFormat/open don't fail silently on a bare
   # live kernel (matches the Artix FDE guide's `cryptsetup benchmark` step).
   cryptsetup benchmark >>"$LOG" 2>&1 || true
 
-  log "Encrypting $part2 (LUKS2, Argon2id)"
+  # Argon2id can default to hundreds of MiB and cause an OOM/hang on low-RAM
+  # live media. Cap memory cost to 128 MiB; cryptsetup benchmark will tune the
+  # iteration count around that limit. Still stronger than pbkdf2.
+  log "Encrypting $part2 (LUKS2, Argon2id, 128 MiB Memory Cap)"
   printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
-    --pbkdf argon2id --batch-mode --key-file - "$part2" >>"$LOG" 2>&1
+    --pbkdf argon2id --pbkdf-memory 131072 --batch-mode --key-file - "$part2" >>"$LOG" 2>&1 \
+    || die "cryptsetup luksFormat Failed For $part2 — See $LOG."
+
   log "Opening LUKS Container"
-  printf '%s' "$LUKS_PW" | cryptsetup open --type luks2 --key-file - "$part2" cryptsystem >>"$LOG" 2>&1
+  local crypt_rc
+  printf '%s' "$LUKS_PW" | cryptsetup open --type luks2 \
+    --key-file - "$part2" cryptsystem >>"$LOG" 2>&1 || crypt_rc=$?
+  if [ "${crypt_rc:-0}" -ne 0 ]; then
+    echo "cryptsetup open exit code: ${crypt_rc:-0}" >>"$LOG"
+    die "cryptsetup open Failed For $part2 — See $LOG."
+  fi
   part3="/dev/mapper/cryptsystem"
+
+  log "Formatting $part3 As Btrfs"
+  mkfs.btrfs -f -L cryptroot "$part3" >>"$LOG" 2>&1 \
+    || die "mkfs.btrfs Failed For $part3 — See $LOG."
 
   log "Creating Btrfs Subvolumes @ And @home"
   mount "$part3" $MNT
