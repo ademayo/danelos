@@ -5,7 +5,7 @@
 #  ██║  ██║███████║██╔██╗ ██║█████╗  ██║     ██║  ██║███████╗
 #  ██║  ██║██╔══██║██║╚██╗██║██╔══╝  ██║     ██║  ██║╚════██║
 #  ██████╔╝██║  ██║██║ ╚████║███████╗███████╗██████╔╝███████║
-#  Stock Artix ISO (base-dinit), Connected To Wi-Fi Or Ethernet. As Root:
+#  Stock Artix ISO (base-dinit), Bring Your Own Network Connection. As Root:
 #
 #    sudo pacman -Syu git --noconfirm && \
 #      git clone https://github.com/ademayo/danelos.git && \
@@ -37,8 +37,7 @@ banner() {
   echo "  ██║  ██║██╔══██║██║╚██╗██║██╔══╝  ██║     ██║  ██║╚════██║"
   echo "  ██████╔╝██║  ██║██║ ╚████║███████╗███████╗██████╔╝███████║"
   echo "  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚═════╝ ╚══════╝"
-  echo -e "${N}${C}  Artix · dinit · Hyprland${N}"
-  echo -e "${Y}  v${VERSION} — Stock ISO · Wi-Fi Ready · The Whole Rig Will Be Wiped, No Take-Backs${N}"
+  echo -e "${Y}  v${VERSION} — Stock ISO · Bring Your Own Network · The Whole Rig Will Be Wiped, No Take-Backs${N}"
 }
 log()  { echo -e "${G}::${N} $*" | tee -a "$LOG"; }
 step() { echo -e "\n${C}==> ${B}$*${N}" | tee -a "$LOG"; }
@@ -72,107 +71,21 @@ ensure_deps() {
   # basestrap/artix-chroot/fstabgen Ship On Every Artix Live ISO (artools-base,
   # Dependency Of artix-live-base). whiptail/git Are On the Stock base-dinit
   # ISO; Anything Else Gets Pulled From the Repos.
+  # sgdisk (gptfdisk) Isn't On the Base ISO — Always Install It. The Rest Only
+  # When Missing. Failure Dies Loudly Here Instead of At the First sgdisk Call.
+  pacman -Sy --noconfirm --needed gptfdisk >>"$LOG" 2>&1 \
+    || die "gptfdisk Install Failed — Check $LOG And Your Network Connection."
   local missing=()
-  for c in whiptail sgdisk curl vim git; do
+  for c in whiptail vim git; do
     command -v "$c" >/dev/null 2>&1 || missing+=("$c")
   done
   if [ ${#missing[@]} -gt 0 ]; then
     log "Installing Missing ISO Tools: ${missing[*]}"
-    pacman -Sy --noconfirm --needed libnewt gptfdisk curl vim git >>"$LOG" 2>&1
+    pacman -Sy --noconfirm --needed libnewt vim git >>"$LOG" 2>&1 \
+      || die "ISO Tools Install Failed (${missing[*]}) — Check $LOG."
   fi
   for c in whiptail sgdisk basestrap artix-chroot fstabgen git; do
     command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Artools-Base, Git First."
-  done
-}
-
-# ----------------------------------------------------------------------------
-# Network (Wi-Fi Selection Or Skip If Already Online)
-# ----------------------------------------------------------------------------
-setup_network() {
-  step "Checking Network Connectivity"
-
-  # Online Already (Ethernet Or Prior Connection)? Offer Skip.
-  if ping -c1 -W3 geo-mirror.chaotic.cx >/dev/null 2>&1; then
-    if whiptail --yesno --defaultyes "Network Is Already Online. Skip Wi-Fi Setup?" 10 55 \
-       --title "Artix — Network" 3>&1 1>&2 2>&3; then
-      return 0
-    fi
-  fi
-
-  command -v nmcli >/dev/null 2>&1 || die "nmcli Unavailable — The Live ISO Should Ship NetworkManager."
-
-  while :; do
-    step "Scanning For Wi-Fi Networks"
-    # Trigger a Fresh Scan; Ignore Failure (Driver May Refuse While Up).
-    nmcli device wifi rescan >/dev/null 2>&1 || true
-    sleep 2
-
-    local -a nets=() line ssid sig sec
-    local -A open_net=()                            # SSID → "Open" Marker
-    while IFS= read -r line; do
-      [ -z "$line" ] && continue
-      sig="${line%%:*}";   line="${line#*:}"
-      ssid="${line%%:*}";  line="${line#*:}"
-      sec="${line%%:*}"
-      [ -z "$ssid" ] && continue                    # Hidden SSIDs Need Manual Entry
-      # Unescape nmcli's Terse-Mode Colons (\:) So the Menu Shows Real Names.
-      ssid="${ssid//\\:/:}"
-      sec="${sec//\\:/:}"
-      if [ "$sec" = "--" ]; then
-        sec="Open"
-        open_net["$ssid"]=1
-      else
-        sec="Secured ($sec)"
-      fi
-      nets+=("$ssid" "$(printf '%-4s %-38s %s' "$sig" "$ssid" "$sec")")
-    done < <(nmcli -t -f SIGNAL,SSID,SECURITY device wifi list 2>/dev/null \
-             | sort -t: -k1,1rn | awk -F: '!seen[$2]++')
-
-    if [ ${#nets[@]} -eq 0 ]; then
-      whiptail --msgbox "No Wi-Fi Networks Found.\n\nMake Sure the Adapter Isn't rfkill-Blocked\n(Run: rfkill unblock all) And Try Again." 12 60 \
-        --title "Artix — Wi-Fi" 3>&1 1>&2 2>&3 || return 1
-      continue
-    fi
-
-    # Menu Height Caps at 24 Rows; whiptail Scrolls Longer Lists Internally.
-    local menu_height=$(( ${#nets[@]} / 2 > 24 ? 24 : ${#nets[@]} / 2 ))
-    local WIFI_SSID
-    WIFI_SSID=$(whiptail --menu "Wi-Fi Networks (Strongest Signal First):" 28 78 "$menu_height" \
-      "${nets[@]}" \
-      --extra-button --extra-label "Rescan" \
-      --title "Artix — Wi-Fi" 3>&1 1>&2 2>&3)
-    local rc=$?
-    if [ $rc -eq 1 ]; then return 0; fi              # Cancel → Ethernet Path
-    if [ $rc -eq 3 ]; then continue; fi              # Rescan Button
-
-    # Open Networks Skip the Password Prompt. Bail Out If the Menu Returned
-    # Nothing (Shouldn't Happen — whiptail Cancels Are Handled Above).
-    local psk=""
-    if [ -z "$WIFI_SSID" ]; then
-      continue
-    elif [ -z "${open_net[$WIFI_SSID]:-}" ]; then
-      while :; do
-        psk=$(whiptail --passwordbox "Password For \"$WIFI_SSID\":" 10 60 "" \
-          --title "Artix — Wi-Fi Password" 3>&1 1>&2 2>&3) || { psk=""; break; }
-        [ ${#psk} -ge 8 ] || { whiptail --msgbox "Password Must Be At Least 8 Characters (WPA)." 9 50; continue; }
-        break
-      done
-      [ -z "$psk" ] && continue                      # Escaped Password Prompt → Back to List
-    fi
-
-    step "Connecting To $WIFI_SSID"
-    if [ -n "$psk" ]; then
-      nmcli device wifi connect "$WIFI_SSID" password "$psk" >>"$LOG" 2>&1 || true
-    else
-      nmcli device wifi connect "$WIFI_SSID" >>"$LOG" 2>&1 || true
-    fi
-
-    if ping -c1 -W5 geo-mirror.chaotic.cx >/dev/null 2>&1; then
-      log "Wi-Fi Connected: $WIFI_SSID"
-      return 0
-    fi
-    whiptail --msgbox "Connection Failed Or No Internet.\nCheck the Password And Try Again." 10 55 \
-      --title "Artix — Wi-Fi" 3>&1 1>&2 2>&3
   done
 }
 
@@ -388,9 +301,10 @@ ask_questions() {
 # ----------------------------------------------------------------------------
 select_disk() {
   step "Selecting Installation Disk"
-  local items=() line
+  local items=() line name
   while read -r line; do
-    items+=("$line" "")
+    name="${line%% *}"
+    items+=("$name" "$line")
   done < <(lsblk -dn -e 7,11 -o NAME,SIZE,TYPE,MODEL)
 
   if [ ${#items[@]} -eq 0 ]; then
@@ -453,8 +367,9 @@ partition_disk() {
     IFS=: read -r _mj _mn < "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev"
     mknod "$_p" b "$_mj" "$_mn" 2>/dev/null || true
   done
-
-  local part1 part2 part3
+  # File Scope: part2 Is Read Back In write_keyfiles And install_grub (crypttab
+  # UUID + GRUB cryptdevice). Locals Die With This Function.
+  part1=; part2=; part3=
   if [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]]; then
     part1="${DISK}p1"; part2="${DISK}p2"; part3="${DISK}p3"
   else
@@ -509,7 +424,7 @@ write_keyfiles() {
   printf '%s\n' "$HOSTNAME" > /mnt/etc/hostname
   cat > /mnt/etc/hosts <<EOF
 127.0.0.1  localhost
-:::1        localhost
+::1        localhost
 127.0.1.1  $HOSTNAME.localdomain $HOSTNAME
 EOF
   cat > /mnt/etc/vconsole.conf <<EOF
@@ -604,7 +519,8 @@ EOF
     [ -z "$line" ] && continue
     desk_pkgs+=("$line")
   done < "$SRC/packages/desktop.packages"
-  artix-chroot $MNT pacman -S --noconfirm --needed --asexplicit "${desk_pkgs[@]}" >>"$LOG" 2>&1
+  artix-chroot $MNT pacman -Sy --noconfirm --needed --asexplicit "${desk_pkgs[@]}" >>"$LOG" 2>&1 \
+    || die "Desktop Package Install Failed — Check $LOG."
 
   artix-chroot $MNT pacman -Syu --noconfirm --needed >>"$LOG" 2>&1
 }
@@ -621,7 +537,7 @@ make_fstab() {
     echo "/swap/swapfile none swap defaults 0 0" >> /tmp/fstab.clean
     mv /tmp/fstab.clean /mnt/etc/fstab
   else
-    local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* ]] && swappart="${DISK}p2"
+    local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]] && swappart="${DISK}p2"
     local swapuuid
     swapuuid=$(lsblk -no UUID "$swappart")
     grep -v 'swap' /mnt/etc/fstab > /tmp/fstab.clean
@@ -700,15 +616,15 @@ enable_services() {
       ln -sfn "/mnt/etc/dinit.d/$svc" "/mnt/etc/dinit.d/boot.d/$svc" 2>/dev/null || true
     fi
   done
-  # User dinit Services (pipewire, dbus) Via userspawn
-  local home_dir="/mnt/home/$USERNAME"
-  if [ -d "$home_dir" ]; then
-    install -d -m755 "$home_dir/.config/dinit.d/boot.d"
-    for s in dbus pipewire pipewire-pulse wireplumber; do
-      [ -e "/mnt/etc/dinit.d/user/$s" ] && ln -sfn "/mnt/etc/dinit.d/user/$s" "$home_dir/.config/dinit.d/boot.d/$s"
-    done
-    chown -R "$(stat -c %u /mnt/home/$USERNAME)" "$home_dir/.config"
-  fi
+  # User dinit Services Via userspawn: pipewire Stack Needs Explicit Enable
+  # (dbus-dinit-user Auto-Enables Itself Via /usr/lib/dinit.d/user/boot.d).
+  # Link From /etc/dinit.d/user Into userspawn's Global User boot.d — Applies
+  # To Every User, No Home-Dir Chown Dance.
+  install -d -m755 /mnt/etc/xdg/userspawn/dinit.d/boot.d
+  for s in pipewire pipewire-pulse wireplumber; do
+    [ -e "/mnt/etc/dinit.d/user/$s" ] && \
+      ln -sfn "/mnt/etc/dinit.d/user/$s" "/mnt/etc/xdg/userspawn/dinit.d/boot.d/$s" || true
+  done
   # Machine ID For dbus/elogind
   artix-chroot $MNT dbus-uuidgen --ensure >/dev/null 2>&1 || true
   [ -f /mnt/var/lib/dbus/machine-id ] && [ ! -f /mnt/etc/machine-id ] && \
@@ -733,7 +649,6 @@ deploy_configs() {
   cp -r "$SRC"/conf/wlogout/. "$u_home/.config/wlogout/"
   cp -r "$SRC"/conf/gtk/.     "$u_home/.config/"
   cp -r "$SRC"/conf/qt/.      "$u_home/.config/qt6ct/"
-  cp -r "$SRC"/conf/userspawn/. "$u_home/.config/dinit/"
   cp "$SRC"/conf/zsh/zshrc    "$u_home/.zshrc"
   cp "$SRC"/conf/vim/vimrc    "$u_home/.vimrc"
   install -Dm755 "$SRC"/conf/bin/keybind-cheatsheet "$u_home/.local/bin/keybind-cheatsheet"
@@ -777,15 +692,17 @@ configure_firewall() {
 # Fin
 # ----------------------------------------------------------------------------
 finish() {
-  step "Unmounting"
-  sync
+  # Swap Off FIRST — An Active Swapfile Holds the Btrfs Mount And LUKS
+  # Container Open, So umount/close Would Fail After It.
+  if [ "$ENCRYPT" = yes ]; then
+    swapoff /mnt/swap/swapfile 2>/dev/null || true
+  else
+    local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]] && swappart="${DISK}p2"
+    swapoff "$swappart" 2>/dev/null || true
+  fi
   umount -R /mnt 2>/dev/null || true
   if [ "$ENCRYPT" = yes ]; then
-    swapoff /swap/swapfile 2>/dev/null || true
     cryptsetup close cryptsystem 2>/dev/null || true
-  else
-    local swappart="${DISK}2"; [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* ]] && swappart="${DISK}p2"
-    swapoff "$swappart" 2>/dev/null || true
   fi
 
   local enc_note="LUKS2:      OFF"
@@ -811,15 +728,12 @@ main() {
   banner
   : > "$LOG"
   ensure_deps
-  setup_network
-  ask_questions
-  select_disk
-  partition_disk
-  write_keyfiles
   basestrap_target
+  configure_users
   make_fstab
   enable_services
   deploy_configs
+  install_grub
   configure_firewall
   finish
 }

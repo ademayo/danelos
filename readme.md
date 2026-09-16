@@ -71,8 +71,7 @@ dhcpcd wlan0
 ```
 
 Replace `wlan0` with your interface (`ip link` or `ls /sys/class/net` to
-find it). Once `ping -c1 artixlinux.org` works, run the installer — it
-detects the live connection and skips its own Wi-Fi setup. To leave the
+find it). Once `ping -c1 artixlinux.org` works, run the installer. To leave the
 supplicant running in the foreground instead of backgrounding with `-B`,
 run it in a second terminal (or TTY) and keep it there while you install.
 

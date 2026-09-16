@@ -233,8 +233,8 @@
 wpa_supplicant -B -i wlan0 -c &lt;(wpa_passphrase 'MyNetwork' 'MyPassword')
 dhcpcd wlan0</span></pre>
   </div>
-  <p style="margin-top:14px">Once <span class="mono">ping -c1 artixlinux.org</span> works, run the installer —
-  it detects the live connection and skips its own Wi-Fi setup. It asks for
+  <p style="margin-top:14px">Once <span class="mono">ping -c1 artixlinux.org</span> works, run the
+  installer. It asks for
   hostname, your name, username, passwords and timezone, then partitions the disk
   as EFI + swap + Btrfs root (<span class="mono">@</span> and <span class="mono">@home</span> subvolumes,
   zstd compression), pacstraps Artix + dinit, installs the desktop, creates your
