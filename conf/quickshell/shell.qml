@@ -7,37 +7,45 @@ import Quickshell.Wayland
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import Qt5Compat.GraphicalEffects
 import "widgets"
 
 ShellRoot {
-    // ------------------------------------------------------------------------
-    // Top bar
-    // ------------------------------------------------------------------------
     PanelWindow {
         id: bar
         anchor.fill: PanelWindowAnchor.Top
         anchor.margins: 0
-        implicitHeight: 34
+        implicitHeight: 36
         color: "transparent"
 
-        // Frosted glass panel.
+        Rectangle {
+            anchors.top: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: 6
+            color: Theme.shadow
+            opacity: 0.25
+        }
+
         Rectangle {
             anchors.fill: parent
-            color: Theme.bgPanel
-            opacity: 0.92
+            color: Theme.panelGlass
             border.color: Theme.border
             border.width: 1
+
+            Rectangle {
+                anchors.fill: parent
+                color: Qt.rgba(1, 1, 1, 0.03)
+            }
         }
 
         RowLayout {
-            id: barLayout
             anchors.fill: parent
             spacing: Theme.pad
 
-            // Left: workspace pills + active window title.
             RowLayout {
-                spacing: 6
-                Layout.leftMargin: Theme.pad
+                spacing: 7
+                Layout.leftMargin: Theme.padLarge
                 Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
 
                 Repeater {
@@ -59,11 +67,13 @@ ShellRoot {
                 }
 
                 Rectangle {
-                    Layout.leftMargin: 6
+                    Layout.leftMargin: 8
                     implicitWidth: Math.min(windowTitle.implicitWidth + Theme.pad * 2, 360)
                     implicitHeight: 22
                     radius: Theme.radiusSmall
                     color: Theme.bgAlt
+                    border.color: Theme.border
+                    border.width: 1
                     visible: windowTitle.text !== ""
 
                     Text {
@@ -81,56 +91,56 @@ ShellRoot {
                 }
             }
 
-            // Center: clock.
-            Text {
+            Rectangle {
                 Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
-                color: Theme.fgBright
-                font.pixelSize: Theme.font
-                font.bold: true
-                font.family: Theme.family
-                text: Qt.formatDateTime(new Date(), "ddd d MMM  HH:mm")
+                implicitWidth: clockText.implicitWidth + Theme.pad * 3
+                implicitHeight: 24
+                radius: 12
+                color: Theme.bgAlt
+                border.color: Theme.border
+                border.width: 1
 
-                Timer {
-                    interval: 1000; running: true; repeat: true
-                    onTriggered: parent.text = Qt.formatDateTime(new Date(), "ddd d MMM  HH:mm")
+                Text {
+                    id: clockText
+                    anchors.centerIn: parent
+                    color: Theme.fgBright
+                    font.pixelSize: Theme.font
+                    font.bold: true
+                    font.family: Theme.family
+                    text: Qt.formatDateTime(new Date(), "ddd d MMM  HH:mm")
+
+                    Timer {
+                        interval: 1000; running: true; repeat: true
+                        onTriggered: parent.text = Qt.formatDateTime(new Date(), "ddd d MMM  HH:mm")
+                    }
                 }
             }
 
-            // Right: system indicators.
             RowLayout {
-                spacing: 8
-                Layout.rightMargin: Theme.pad
+                spacing: 7
+                Layout.rightMargin: Theme.padLarge
                 Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
 
-                // These chips mirror the state of the standard tray applets we
-                // autostart (nm-applet, pasystray, blueman-applet). Clicking them
-                // opens the matching control app; right-click/long-press behavior
-                // lives in the tray icons themselves.
                 IndicatorChip {
                     icon: "\uf1eb"
-                    text: "Network"
-                    textColor: Theme.fg
-                    bgColor: Theme.bgAlt
+                    text: ""
                     onClicked: Quickshell.exec("nm-connection-editor")
                 }
 
                 IndicatorChip {
                     icon: "\uf0ea"
-                    text: "Clipboard"
-                    textColor: Theme.fg
-                    bgColor: Theme.bgAlt
-                    onClicked: Quickshell.exec("nwg-clipman")
+                    text: ""
+                    onClicked: clipboardPopup.visible = true
                 }
 
                 IndicatorChip {
                     icon: Pipewire.defaultAudioSink?.audio?.muted ? "\uf026" : "\uf028"
                     text: {
                         const sink = Pipewire.defaultAudioSink;
-                        if (!sink || !sink.audio) return "--";
+                        if (!sink || !sink.audio) return "";
                         return Math.round(sink.audio.volume * 100) + "%";
                     }
                     textColor: Pipewire.defaultAudioSink?.audio?.muted ? Theme.fgDim : Theme.fg
-                    bgColor: Theme.bgAlt
                     onClicked: Quickshell.exec("pavucontrol-qt")
                 }
 
@@ -146,38 +156,52 @@ ShellRoot {
                     }
                     text: {
                         const dev = UPower.displayDevice;
-                        if (!dev || !dev.ready) return "--";
+                        if (!dev || !dev.ready) return "";
                         return Math.round(dev.percentage) + "%";
                     }
                     urgent: {
                         const dev = UPower.displayDevice;
-                        return dev && dev.ready && dev.percentage <= 20 && dev.state === 2; // Discharging
+                        return dev && dev.ready && dev.percentage <= 20 && dev.state === 2;
                     }
-                    textColor: Theme.fg
-                    bgColor: Theme.bgAlt
-                    onClicked: Quickshell.exec("xfce4-power-manager-settings")
+                    onClicked: Quickshell.exec("cbatticon")
+                }
+
+                IndicatorChip {
+                    icon: "\uf011"
+                    text: ""
+                    textColor: Theme.fgBright
+                    bgColor: Theme.accent
+                    onClicked: Quickshell.exec("wlogout")
                 }
             }
         }
     }
 
-    // ------------------------------------------------------------------------
-    // App launcher popup
-    // ------------------------------------------------------------------------
+    Clipboard {
+        id: clipboardPopup
+    }
+
     PanelWindow {
         id: launcher
         visible: false
         anchor.center: true
-        width: 720
-        height: 480
+        width: 680
+        height: 440
         color: "transparent"
 
-        // Drop shadow / frosted backdrop.
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.shadow
+            radius: Theme.radiusLarge
+            opacity: 0.35
+            anchors.margins: -8
+        }
+
         Rectangle {
             anchors.fill: parent
             color: Theme.bg
-            opacity: 0.96
-            radius: Theme.radius
+            opacity: 0.97
+            radius: Theme.radiusLarge
             border.color: Theme.border
             border.width: 1
         }
@@ -187,20 +211,11 @@ ShellRoot {
             anchors.margins: Theme.padLarge
             spacing: Theme.pad
 
-            Text {
-                text: "Launch Application"
-                color: Theme.fgBright
-                font.pixelSize: Theme.fontLarge
-                font.bold: true
-                font.family: Theme.family
-                Layout.bottomMargin: 4
-            }
-
             TextField {
                 id: search
                 Layout.fillWidth: true
-                implicitHeight: 42
-                placeholderText: "Type to search…"
+                implicitHeight: 40
+                placeholderText: "Search…"
                 color: Theme.fg
                 placeholderTextColor: Theme.fgDim
                 selectionColor: Theme.bgSelected
@@ -209,9 +224,9 @@ ShellRoot {
                 font.family: Theme.family
                 background: Rectangle {
                     color: Theme.bgAlt
-                    radius: Theme.radiusSmall
-                    border.color: search.activeFocus ? Theme.borderFocus : "transparent"
-                    border.width: search.activeFocus ? 2 : 0
+                    radius: Theme.radius
+                    border.color: search.activeFocus ? Theme.borderFocus : Theme.border
+                    border.width: 1
                 }
 
                 Keys.onEscapePressed: launcher.visible = false
@@ -222,24 +237,15 @@ ShellRoot {
                 }
                 Keys.onDownPressed: filteredList.incrementCurrentIndex()
                 Keys.onUpPressed: filteredList.decrementCurrentIndex()
-
-                // Show prompt hint.
-                Text {
-                    anchors.right: parent.right
-                    anchors.rightMargin: Theme.pad
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "ESC to close"
-                    color: Theme.fgDim
-                    font.pixelSize: Theme.fontSmall
-                    font.family: Theme.family
-                }
             }
 
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 color: Theme.bgAlt
-                radius: Theme.radiusSmall
+                radius: Theme.radius
+                border.color: Theme.border
+                border.width: 1
 
                 ListView {
                     id: filteredList
@@ -248,7 +254,7 @@ ShellRoot {
                     clip: true
                     spacing: 2
                     currentIndex: 0
-                    highlightMoveDuration: 120
+                    highlightMoveDuration: 100
                     highlight: Rectangle {
                         color: Theme.bgSelected
                         radius: Theme.radiusSmall
@@ -261,15 +267,15 @@ ShellRoot {
                             e.name.toLowerCase().includes(needle) ||
                             (e.comment && e.comment.toLowerCase().includes(needle)) ||
                             (e.categories && e.categories.some(c => c.toLowerCase().includes(needle)))
-                        ).slice(0, 24);
+                        ).slice(0, 20);
                     }
 
                     delegate: Rectangle {
                         id: itemBg
                         width: filteredList.width
-                        height: 46
+                        height: 42
                         radius: Theme.radiusSmall
-                        color: ListView.isCurrentItem ? Theme.bgSelected : "transparent"
+                        color: ListView.isCurrentItem ? Theme.bgSelected : (mouseArea.containsMouse ? Theme.bgHover : "transparent")
 
                         function launch() {
                             const entry = modelData;
@@ -289,7 +295,7 @@ ShellRoot {
 
                             IconImage {
                                 source: modelData.iconName || modelData.icon || "application-x-executable"
-                                width: 26; height: 26
+                                width: 20; height: 20
                                 color: ListView.isCurrentItem ? Theme.fgBright : Theme.fg
                             }
 
@@ -301,7 +307,6 @@ ShellRoot {
                                     text: modelData.name
                                     color: ListView.isCurrentItem ? Theme.fgBright : Theme.fg
                                     font.pixelSize: Theme.font
-                                    font.bold: true
                                     font.family: Theme.family
                                     Layout.fillWidth: true
                                     elide: Text.ElideRight
@@ -320,6 +325,7 @@ ShellRoot {
                         }
 
                         MouseArea {
+                            id: mouseArea
                             anchors.fill: parent
                             hoverEnabled: true
                             onEntered: filteredList.currentIndex = index
@@ -332,7 +338,6 @@ ShellRoot {
                     }
                     Keys.onEscapePressed: launcher.visible = false
 
-                    // Empty state.
                     Text {
                         anchors.centerIn: parent
                         text: "No applications found"

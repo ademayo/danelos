@@ -10,12 +10,15 @@ Rectangle {
     property bool urgent: false
     signal clicked()
 
-    implicitWidth: row.implicitWidth + Theme.pad * 2
+    implicitWidth: Math.max(22, row.implicitWidth + Theme.pad * 2)
     implicitHeight: 22
-    radius: Theme.radiusSmall
-    color: urgent ? Qt.rgba(Theme.red.r, Theme.red.g, Theme.red.b, 0.25) : bgColor
-    border.color: urgent ? Theme.red : "transparent"
-    border.width: urgent ? 1 : 0
+    radius: 5
+    color: urgent ? Qt.rgba(Theme.red.r, Theme.red.g, Theme.red.b, 0.18) : bgColor
+    border.color: urgent ? Theme.red : Theme.border
+    border.width: 1
+    opacity: mouseArea.containsMouse ? 0.95 : 1
+
+    Behavior on opacity { NumberAnimation { duration: 100 } }
 
     RowLayout {
         id: row
@@ -24,8 +27,9 @@ Rectangle {
 
         Text {
             id: iconLabel
-            color: urgent ? Theme.red : Theme.accent2
+            color: urgent ? Theme.red : Theme.accent
             font.pixelSize: Theme.fontSmall
+            font.family: Theme.mono
             visible: text !== ""
         }
 
@@ -38,7 +42,9 @@ Rectangle {
     }
 
     MouseArea {
+        id: mouseArea
         anchors.fill: parent
+        hoverEnabled: true
         onClicked: root.clicked()
     }
 }

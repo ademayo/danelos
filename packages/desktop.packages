@@ -19,18 +19,18 @@ quickshell
 fuzzel
 wlogout
 
-# Terminal, File Manager, Utilities — XFCE/MATE Ecosystem, No GNOME Apps
+# Terminal, File Manager, Utilities — Qt/KDE Ecosystem, No GNOME Apps
 ghostty
-thunar
-thunar-archive-plugin
-gvfs
-gvfs-mtp
-xarchiver
+dolphin
+dolphin-plugins
+kio-extras
+kio-fuse
+kio-admin
+ark
 pavucontrol-qt
 pasystray
 blueman
-xfce4-power-manager
-nwg-clipman
+cbatticon
 playerctl
 brightnessctl
 swaybg
@@ -40,17 +40,21 @@ slurp
 wl-clipboard
 cliphist
 
-# Everyday Desktop: Calculator, Image Viewer, PDF Viewer, Thumbnails
-galculator
-ristretto
+# Everyday Desktop: Image Viewer, PDF Viewer, Thumbnails
+gwenview
 qpdfview           # Artix galaxy
+kimageformats
 tumbler
 
-# Login Manager: SDDM (Qt6/QML Greeter On Wayland Via Weston Kiosk,
-# Bundled Arc Dark Theme; Hyprland Session Launched Post-login)
-sddm
-sddm-dinit
-weston
+# Login Manager: greetd + tuigreet (TUI greeter launches Hyprland directly)
+greetd
+greetd-tuigreet
+greetd-dinit
+
+# Boot Splash: Plymouth with a minimal spinner theme
+plymouth
+plymouth-dinit
+plymouth-theme-spinner
 
 # Laptop: ThinkPad battery / fingerprint support
 tpacpi-bat
@@ -58,16 +62,14 @@ fprintd
 
 # Theme: Arc Dark + Papirus + Fonts
 arc-gtk-theme
-gnome-themes-extra
 papirus-icon-theme
 adwaita-icon-theme
-adwaita-icon-theme-legacy
 adwaita-fonts
 ttf-cascadia-code-nerd
 noto-fonts
 noto-fonts-emoji
 papirus-folders        # chaotic-aur
-polkit-gnome
+lxqt-policykit
 
 # Qt Theming under Wayland
 qt5-wayland
@@ -76,5 +78,6 @@ qt5ct
 qt6ct
 
 # Browsers
-ungoogled-chromium-bin  # chaotic-aur
-librewolf               # Artix galaxy
+ungoogled-chromium
+librewolf
+betterbird-bin

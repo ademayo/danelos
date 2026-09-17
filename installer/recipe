@@ -5,16 +5,14 @@
 #  ██║  ██║███████║██╔██╗ ██║█████╗  ██║     ██║  ██║███████╗
 #  ██║  ██║██╔══██║██║╚██╗██║██╔══╝  ██║     ██║  ██║╚════██║
 #  ██████╔╝██║  ██║██║ ╚████║███████╗███████╗██████╔╝███████║
-#  Stock Artix ISO (base-dinit), Bring Your Own Network Connection. As Root:
+#  Desktop Layer Installer — Already-Installed Artix (base + dinit + Chaotic-AUR)
 #
-#    sudo pacman -Syu git --noconfirm && \
-#      git clone https://github.com/ademayo/danelos.git && \
+#    git clone https://github.com/ademayo/danelos.git && \
 #      sudo ./danelos/installer/recipe
 # ============================================================================
 set -eEuo pipefail
 
-VERSION="0.2"
-MNT=/mnt
+VERSION="0.3"
 LOG=/tmp/install.log
 SRC="$(dirname "$(readlink -f "${BASH_SOURCE[0]:-.}")")/.."
 
@@ -37,7 +35,7 @@ banner() {
   echo "  ██║  ██║██╔══██║██║╚██╗██║██╔══╝  ██║     ██║  ██║╚════██║"
   echo "  ██████╔╝██║  ██║██║ ╚████║███████╗███████╗██████╔╝███████║"
   echo "  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚═════╝ ╚══════╝"
-  echo -e "${Y}  v${VERSION} — Stock ISO · Bring Your Own Network · The Whole Rig Will Be Wiped, No Take-Backs${N}"
+  echo -e "${Y}  v${VERSION} — Desktop Layer · Base Artix + dinit + Chaotic-AUR Required · No Disks Touched${N}"
 }
 log()  { echo -e "${G}::${N} $*" | tee -a "$LOG"; }
 step() { echo -e "\n${C}==> ${B}$*${N}" | tee -a "$LOG"; }
@@ -47,574 +45,101 @@ die()  { echo -e "${D}FATAL: $*${N}" | tee -a "$LOG" >&2; exit 1; }
 # ----------------------------------------------------------------------------
 # Preflight
 # ----------------------------------------------------------------------------
-[ "$(id -u)" = 0 ] || die "Run As Root — Boot The Stock ISO And Log In As The Live User."
+[ "$(id -u)" = 0 ] || die "Run As Root."
 grep -qs 'Artix' /etc/os-release || die "This Installer Must Run On Artix Linux."
 
-# Stock Artix Live Detection: The Initramfs Mounts the Live Root Under
-# /run/artix (iso-initcpio 'artix' Hook) And Boot Params Carry
-# label=/overlay=livefs.
-live_ok() {
-  [ -d /run/artix ] && return 0
-  grep -qs 'overlay=livefs\|label=ARTIX' /proc/cmdline && return 0
-  mountpoint -q /run/artix/bootmnt 2>/dev/null
-}
-
-if ! live_ok; then
-  die "Not Running From The Artix Live Environment. Boot The Stock Artix ISO."
-fi
-
 # ----------------------------------------------------------------------------
-# Dependencies (Only What a Stock Artix ISO Lacks)
+# Dependencies
 # ----------------------------------------------------------------------------
 ensure_deps() {
   step "Checking Dependencies"
-  # basestrap/artix-chroot/fstabgen Ship On Every Artix Live ISO (artools-base,
-  # Dependency Of artix-live-base). whiptail/git Are On the Stock base-dinit
-  # ISO; Anything Else Gets Pulled From the Repos.
-  # sgdisk (gptfdisk) and cryptsetup aren't on the base ISO; util-linux is
-  # already present but re-ensure it for wipefs. Failure dies loudly here
-  # instead of at the first partition/crypto call.
-  pacman -Sy --noconfirm --needed cryptsetup util-linux >>"$LOG" 2>&1 \
-    || die "cryptsetup/util-linux Install Failed — Check $LOG And Your Network Connection."
   local missing=()
   for c in whiptail vim git; do
     command -v "$c" >/dev/null 2>&1 || missing+=("$c")
   done
   if [ ${#missing[@]} -gt 0 ]; then
-    log "Installing Missing ISO Tools: ${missing[*]}"
+    log "Installing Missing Tools: ${missing[*]}"
     pacman -Sy --noconfirm --needed libnewt vim git >>"$LOG" 2>&1 \
-      || die "ISO Tools Install Failed (${missing[*]}) — Check $LOG."
+      || die "Tool Install Failed (${missing[*]}) — Check $LOG."
   fi
-  for c in whiptail cryptsetup wipefs basestrap artix-chroot fstabgen git; do
-    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Cryptsetup, Util-Linux, Artools-Base, Git First."
-  done
+  command -v whiptail >/dev/null 2>&1 || die "whiptail Unavailable — Install libnewt."
+  command -v git >/dev/null 2>&1 || die "git Unavailable."
+
+  # Chaotic-AUR is required for ungoogled-chromium-bin and papirus-folders.
+  if ! grep -qs '^\[chaotic-aur\]' /etc/pacman.conf; then
+    warn "[chaotic-aur] not found in /etc/pacman.conf — some desktop packages (ungoogled-chromium-bin, papirus-folders) may fail."
+  fi
 }
 
 # ----------------------------------------------------------------------------
-# Collect Answers — Everything Else Is Decided For You
+# Ask which existing user gets the desktop config
 # ----------------------------------------------------------------------------
 ask_questions() {
-  step "Asking The Only Questions That Matter"
-
-  HOSTNAME=$(whiptail --inputbox "Machine Name (Hostname):" 10 50 "artix" \
-    --title "Artix — Hostname" 3>&1 1>&2 2>&3) || exit 1
-
-  REALNAME=$(whiptail --inputbox "Your Full Name (Display Name):" 10 50 "" \
-    --title "Artix — Name" 3>&1 1>&2 2>&3) || exit 1
+  step "Asking The Only Question That Matters"
 
   while :; do
     USERNAME=$(whiptail --inputbox "Username (Lowercase, No Spaces):" 10 50 "" \
       --title "Artix — Username" 3>&1 1>&2 2>&3) || exit 1
     [[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { whiptail --msgbox "Invalid Username." 8 40; continue; }
+    if ! id -u "$USERNAME" >/dev/null 2>&1; then
+      whiptail --msgbox "User '$USERNAME' does not exist.\nCreate the user first, then re-run this installer." 9 60
+      continue
+    fi
     break
   done
 
-  while :; do
-    ROOT_PW=$(whiptail --passwordbox "Root Password:" 10 50 "" \
-      --title "Artix — Root Password" 3>&1 1>&2 2>&3) || exit 1
-    ROOT_PW2=$(whiptail --passwordbox "Repeat Root Password:" 10 50 "" 3>&1 1>&2 2>&3) || exit 1
-    [ -n "$ROOT_PW" ] && [ "$ROOT_PW" = "$ROOT_PW2" ] && break
-    whiptail --msgbox "Passwords Empty Or Do Not Match." 8 45
-  done
-
-  while :; do
-    USER_PW=$(whiptail --passwordbox "Password For $USERNAME:" 10 50 "" \
-      --title "Artix — User Password" 3>&1 1>&2 2>&3) || exit 1
-    USER_PW2=$(whiptail --passwordbox "Repeat Password:" 10 50 "" 3>&1 1>&2 2>&3) || exit 1
-    [ -n "$USER_PW" ] && [ "$USER_PW" = "$USER_PW2" ] && break
-    whiptail --msgbox "Passwords Empty Or Do Not Match." 8 45
-  done
-
-  # Locale: Curated UTF-8 Shortlist (Same Hand-Built Style As the Timezone
-  # List). The ISO's Active Locale Is Preselected; en_US Is Always Generated
-  # As a Floor Later, So a Bad Pick Can't Break Boot.
-  local -a locales=()
-  locales+=(
-    "en_US.UTF-8" "English (US)" \
-    "en_GB.UTF-8" "English (UK)" \
-    "de_DE.UTF-8" "German" \
-    "fr_FR.UTF-8" "French" \
-    "es_ES.UTF-8" "Spanish" \
-    "it_IT.UTF-8" "Italian" \
-    "nl_NL.UTF-8" "Dutch" \
-    "da_DK.UTF-8" "Danish" \
-    "sv_SE.UTF-8" "Swedish" \
-    "nb_NO.UTF-8" "Norwegian" \
-    "fi_FI.UTF-8" "Finnish" \
-    "is_IS.UTF-8" "Icelandic" \
-    "pl_PL.UTF-8" "Polish" \
-    "cs_CZ.UTF-8" "Czech" \
-    "hu_HU.UTF-8" "Hungarian" \
-    "ro_RO.UTF-8" "Romanian" \
-    "bg_BG.UTF-8" "Bulgarian" \
-    "el_GR.UTF-8" "Greek" \
-    "tr_TR.UTF-8" "Turkish" \
-    "uk_UA.UTF-8" "Ukrainian" \
-    "ru_RU.UTF-8" "Russian" \
-    "lv_LV.UTF-8" "Latvian" \
-    "lt_LT.UTF-8" "Lithuanian" \
-    "et_EE.UTF-8" "Estonian" \
-    "pt_PT.UTF-8" "Portuguese" \
-    "pt_BR.UTF-8" "Brazilian Portuguese" \
-    "ca_ES.UTF-8" "Catalan" \
-    "eu_ES.UTF-8" "Basque" \
-    "ja_JP.UTF-8" "Japanese" \
-    "ko_KR.UTF-8" "Korean" \
-    "zh_CN.UTF-8" "Chinese (Simplified)" \
-    "zh_TW.UTF-8" "Chinese (Traditional)" \
-  )
-  local iso_loc
-  iso_loc=$(locale | grep -oP 'LANG=\K\S+' | head -1 || true)
-  local -a loc_opts=()
-  if [ -n "$iso_loc" ]; then
-    local _l
-    for _l in "${locales[@]}"; do
-      [ "$_l" = "$iso_loc" ] && { loc_opts=(--default-item "$iso_loc"); break; }
-    done
-  fi
-  local loc_menu_height=$(( ${#locales[@]} / 2 > 24 ? 24 : ${#locales[@]} / 2 ))
-  LOCALE=$(whiptail "${loc_opts[@]}" --menu "System Language (Locale):" 28 68 "$loc_menu_height" \
-    "${locales[@]}" \
-    --title "Artix — Language" 3>&1 1>&2 2>&3) || exit 1
-  # Encryption: Mandatory LUKS2 On the System Partition. The Disk Passphrase
-  # Is Asked Once At Boot (Initramfs Unlock — GRUB Can't Do LUKS2/Argon2id
-  # Natively). Swap Moves Inside the Encrypted Volume As a Btrfs Swapfile,
-  # So It's Encrypted Too.
-  whiptail --msgbox "This Install Is Fully Encrypted (LUKS2).\nYou Will Now Pick a Disk Passphrase — You'll Type It\nOnce At Every Boot, Before the Login Screen." 11 60 \
-    --title "Artix — Disk Encryption" 3>&1 1>&2 2>&3 || exit 1
-  while :; do
-    LUKS_PW=$(whiptail --passwordbox "Disk Passphrase (Asked Once At Boot):" 10 60 "" \
-      --title "Artix — LUKS Passphrase" 3>&1 1>&2 2>&3) || exit 1
-    LUKS_PW2=$(whiptail --passwordbox "Repeat Passphrase:" 10 60 "" 3>&1 1>&2 2>&3) || exit 1
-    [ -n "$LUKS_PW" ] && [ "$LUKS_PW" = "$LUKS_PW2" ] && break
-    whiptail --msgbox "Passphrases Empty Or Do Not Match." 8 45
-  done
-
-  # Zone list: one entry per country plus split regions where a country
-  # spans several zones. Validated against /usr/share/zoneinfo at build time.
-  local -a zones=()
-  zones+=(
-    "Europe/Copenhagen"   "Denmark" \
-    "Europe/Berlin"       "Germany" \
-    "Europe/Oslo"         "Norway" \
-    "Europe/Stockholm"    "Sweden" \
-    "Europe/Helsinki"     "Finland" \
-    "Europe/Amsterdam"    "Netherlands" \
-    "Europe/Brussels"     "Belgium" \
-    "Europe/Paris"        "France" \
-    "Europe/London"       "United Kingdom" \
-    "Europe/Dublin"       "Ireland" \
-    "Europe/Madrid"       "Spain" \
-    "Europe/Lisbon"       "Portugal" \
-    "Europe/Rome"         "Italy" \
-    "Europe/Vienna"       "Austria" \
-    "Europe/Zurich"       "Switzerland" \
-    "Europe/Prague"       "Czechia" \
-    "Europe/Warsaw"       "Poland" \
-    "Europe/Budapest"     "Hungary" \
-    "Europe/Bucharest"    "Romania" \
-    "Europe/Sofia"        "Bulgaria" \
-    "Europe/Athens"       "Greece" \
-    "Europe/Istanbul"     "Turkey" \
-    "Europe/Kyiv"         "Ukraine" \
-    "Europe/Riga"         "Latvia" \
-    "Europe/Vilnius"      "Lithuania" \
-    "Europe/Tallinn"      "Estonia" \
-    "Europe/Moscow"       "Russia (Moscow)" \
-    "Asia/Yekaterinburg"  "Russia (Yekaterinburg)" \
-    "Asia/Novosibirsk"    "Russia (Novosibirsk)" \
-    "Asia/Vladivostok"    "Russia (Vladivostok)" \
-    "America/New_York"    "US Eastern" \
-    "America/Chicago"     "US Central" \
-    "America/Denver"      "US Mountain" \
-    "America/Phoenix"     "US Arizona (No DST)" \
-    "America/Los_Angeles" "US Pacific" \
-    "America/Anchorage"   "US Alaska" \
-    "Pacific/Honolulu"    "US Hawaii" \
-    "America/Toronto"     "Canada (Eastern)" \
-    "America/Winnipeg"    "Canada (Central)" \
-    "America/Edmonton"    "Canada (Mountain)" \
-    "America/Vancouver"   "Canada (Pacific)" \
-    "America/St_Johns"    "Canada (Newfoundland)" \
-    "America/Mexico_City" "Mexico" \
-    "America/Guatemala"   "Guatemala" \
-    "America/Panama"      "Panama" \
-    "America/Bogota"      "Colombia" \
-    "America/Caracas"     "Venezuela" \
-    "America/Lima"        "Peru" \
-    "America/Santiago"    "Chile" \
-    "America/Argentina/Buenos_Aires" "Argentina" \
-    "America/Sao_Paulo"   "Brazil (Sao Paulo)" \
-    "America/Manaus"      "Brazil (Manaus)" \
-    "America/La_Paz"      "Bolivia" \
-    "America/Montevideo"  "Uruguay" \
-    "Asia/Tokyo"          "Japan" \
-    "Asia/Seoul"          "South Korea" \
-    "Asia/Shanghai"       "China" \
-    "Asia/Taipei"         "Taiwan" \
-    "Asia/Singapore"      "Singapore" \
-    "Asia/Bangkok"        "Thailand" \
-    "Asia/Jakarta"        "Indonesia" \
-    "Asia/Manila"         "Philippines" \
-    "Asia/Kolkata"        "India" \
-    "Asia/Karachi"        "Pakistan" \
-    "Asia/Dhaka"          "Bangladesh" \
-    "Asia/Dubai"          "UAE" \
-    "Asia/Riyadh"         "Saudi Arabia" \
-    "Asia/Jerusalem"      "Israel" \
-    "Asia/Tehran"         "Iran" \
-    "Africa/Cairo"        "Egypt" \
-    "Africa/Lagos"        "Nigeria" \
-    "Africa/Nairobi"      "Kenya" \
-    "Africa/Johannesburg" "South Africa" \
-    "Africa/Casablanca"   "Morocco" \
-    "Australia/Sydney"    "Australia (Eastern)" \
-    "Australia/Melbourne" "Australia (Victoria)" \
-    "Australia/Brisbane"  "Australia (Queensland)" \
-    "Australia/Adelaide"  "Australia (Central)" \
-    "Australia/Perth"     "Australia (Western)" \
-    "Pacific/Auckland"    "New Zealand" \
-    "UTC"                 "UTC" \
-  )
-
-  # Menu Height Caps at 24 Rows; whiptail Scrolls Longer Lists Internally.
-  local menu_height=$(( ${#zones[@]} / 2 > 24 ? 24 : ${#zones[@]} / 2 ))
-  TIMEZONE=$(whiptail --menu "Location (Timezone):" 28 68 "$menu_height" \
-    "${zones[@]}" \
-    --title "Artix — Timezone" 3>&1 1>&2 2>&3) || exit 1
-
-  # Pull The Keymap From the ISO Environment So the Console Matches the Install Medium
-  KEYMAP=$(sed -n 's/^KEYMAP="\?//p' /etc/vconsole.conf 2>/dev/null | tr -d '"' || true)
-  KEYMAP="${KEYMAP:-us}"
+  REALNAME=$(getent passwd "$USERNAME" | cut -d: -f5 | cut -d',' -f1)
 }
 
-# ----------------------------------------------------------------------------
-# Disk Selection
-# ----------------------------------------------------------------------------
-select_disk() {
-  step "Selecting Installation Disk"
-  local items=() line name
-  while read -r line; do
-    name="${line%% *}"
-    items+=("$name" "$line")
-  done < <(lsblk -dn -e 7,11 -o NAME,SIZE,TYPE,MODEL)
-
-  if [ ${#items[@]} -eq 0 ]; then
-    die "No Disks Found."
-  fi
-
-  DISK=$(whiptail --menu "Install To Which Disk?\nEverything On It Will Be Erased:" \
-    22 76 10 "${items[@]}" --title "Artix — Disk" 3>&1 1>&2 2>&3) || exit 1
-  DISK="/dev/$DISK"
-
-  local size model
-  size=$(lsblk -dn -o SIZE "$DISK")
-  model=$(lsblk -dn -o MODEL "$DISK" | xargs)
-
-  local layout="  1  EFI System   512 MiB  FAT32  BOOT (Blank — Will Be Formatted)
-  2  Linux FS     Rest     LUKS2  cryptsystem (Blank With LUKS — Will Be Opened)
-     └ Btrfs     Rest            System  (@ And @home Subvolumes, Encrypted Swapfile)"
-
-  whiptail --title "Artix — Final Confirmation" --yesno --defaultno \
-"Selected Disk: $DISK ($model, $size)
-
-$layout
-
-This Installer Does NOT Repartition. It Expects:
-  • Partition 1 as a BLANK EFI partition (will mkfs.fat).
-  • Partition 2 as a BLANK Linux Filesystem partition with LUKS already
-    created (will open, then mkfs.btrfs inside the opened container).
-
-Firewall: ufw ON (Deny Incoming).
-Locale: $LOCALE    Timezone: $TIMEZONE
-
-Proceed?" 21 70 || { log "Aborted At Confirmation."; exit 1; }
-  sync
-}
-
-open_disk() {
-  step "Opening Existing LUKS Container On Partition 2"
-
-  # Clean up leftovers from a previous aborted install.
-  swapoff /mnt/swap/swapfile 2>/dev/null || true
-  umount -R /mnt 2>/dev/null || true
-  if [ -e /dev/mapper/cryptsystem ]; then
-    log "Closing stale cryptsystem mapping before opening fresh"
-    cryptsetup close cryptsystem 2>/dev/null || dmsetup remove cryptsystem 2>/dev/null || true
-  fi
-
-  part1=; part2=; part3=
-  if [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]]; then
-    part1="${DISK}p1"; part2="${DISK}p2"
-  else
-    part1="${DISK}1"; part2="${DISK}2"
-  fi
-
-  [ -b "$part1" ] || die "ESP Partition $part1 Not Found — Disk Must Already Be Set Up With Partition 1 As EFI."
-  [ -b "$part2" ] || die "LUKS Partition $part2 Not Found — Disk Must Already Be Set Up With Partition 2 As LUKS."
-
-  mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1 \
-    || die "mkfs.fat Failed For $part1 — See $LOG."
-
-  # Probe the LUKS header to make sure partition 2 really is a crypt container.
-  if ! cryptsetup isLuks "$part2" >>"$LOG" 2>&1; then
-    die "$part2 Does Not Contain a Recognized LUKS Header — Pre-Setup Disk Required."
-  fi
-
-  log "Opening $part2 as /dev/mapper/cryptsystem"
-  local crypt_rc
-  printf '%s' "$LUKS_PW" | cryptsetup open --type luks2 \
-    --key-file - "$part2" cryptsystem >>"$LOG" 2>&1 || crypt_rc=$?
-  if [ "${crypt_rc:-0}" -ne 0 ]; then
-    echo "cryptsetup open exit code: ${crypt_rc:-0}" >>"$LOG"
-    sleep 1
-    crypt_rc=0
-    printf '%s' "$LUKS_PW" | cryptsetup open --type luks2 \
-      --key-file - "$part2" cryptsystem >>"$LOG" 2>&1 || crypt_rc=$?
-    if [ "$crypt_rc" -ne 0 ]; then
-      echo "cryptsetup open retry exit code: $crypt_rc" >>"$LOG"
-      die "cryptsetup open Failed For $part2 — Wrong Passphrase Or Damaged Header. See $LOG."
-    fi
-  fi
-  part3="/dev/mapper/cryptsystem"
-
-  log "Formatting $part3 As Btrfs"
-  mkfs.btrfs -f -L cryptroot "$part3" >>"$LOG" 2>&1 \
-    || die "mkfs.btrfs Failed For $part3 — See $LOG."
-
-  log "Creating Btrfs Subvolumes @ And @home"
-  mount "$part3" $MNT
-  btrfs subvolume create /mnt/@   >>"$LOG" 2>&1
-  btrfs subvolume create /mnt/@home >>"$LOG" 2>&1
-  umount /mnt
-
-  log "Mounting"
-  mount -o subvol=/@,compress=zstd "$part3" $MNT
-  mkdir -p /mnt/boot /mnt/home /mnt/swap
-  mount "$part1" /mnt/boot
-  mount -o subvol=/@home,compress=zstd "$part3" /mnt/home
-
-  # 4 GiB Encrypted Swapfile (mkswapfile Sets NOCOW — Required For swapon)
-  log "Creating 4 GiB Encrypted Swapfile"
-  btrfs filesystem mkswapfile --size 4g --uuid clear /mnt/swap/swapfile >>"$LOG" 2>&1
-  [ -s /mnt/swap/swapfile ] || die "Swapfile Creation Failed — See $LOG."
-  chmod 0600 /mnt/swap/swapfile
-  swapon /mnt/swap/swapfile || die "swapon Failed For Encrypted Swapfile — See $LOG."
-}
-
-# ----------------------------------------------------------------------------
-# Target System
-# ----------------------------------------------------------------------------
-write_keyfiles() {
-  step "Writing System Key Files"
-  mkdir -p /mnt/etc
-  cat > /mnt/etc/hosts <<EOF
-127.0.0.1  localhost
-::1        localhost
-127.0.1.1  $HOSTNAME.localdomain $HOSTNAME
-EOF
-  cat > /mnt/etc/vconsole.conf <<EOF
-KEYMAP=${KEYMAP:-us}
-EOF
-  ln -sf "/usr/share/zoneinfo/$TIMEZONE" /mnt/etc/localtime
-  echo "KEYMAP=${KEYMAP:-us}" > /etc/vconsole.conf
-
-  # Locale: Written To the Target Now; locale.gen Un-commented and locale-gen
-  # Runs Post-basestrap (The Target File Only Exists After glibc Installs).
-  echo "LANG=$LOCALE" > /mnt/etc/locale.conf
-  # Post-basestrap, In Target: Enable the Picked Locale Plus en_US As a Floor.
-  POST_LOCALE_GEN='
-sed -i "s/^#@LOCALE@ UTF-8/@LOCALE@ UTF-8/" /etc/locale.gen
-sed -i "s/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/" /etc/locale.gen
-grep -qs "^@LOCALE@ UTF-8" /etc/locale.gen || echo "@LOCALE@ UTF-8" >> /etc/locale.gen
-locale-gen
-'
-  POST_LOCALE_GEN="${POST_LOCALE_GEN//@LOCALE@/$LOCALE}"
-
-  # LUKS: crypttab So the Root Container Is Openable Post-boot (e.g. LVM /
-  # Rescue), Though the Initramfs Hook Is the Real Unlock Path.
-  local luksuuid
-  luksuuid=$(cryptsetup luksUUID "$part2")
-  echo "cryptsystem UUID=$luksuuid none luks,discard" > /mnt/etc/crypttab
-  # Initramfs Unlock Config: Ask For the Passphrase Once At Boot.
-  echo "cryptsystem UUID=$luksuuid" > /mnt/etc/crypttab.initramfs
-}
 
 # ----------------------------------------------------------------------------
 # Target Packages
 # ----------------------------------------------------------------------------
-basestrap_target() {
-  step "Installing Base System (This Takes A While — Grab A Coffee)"
-  # Repo Package Lists Minus What basestrap Needs Pulled Explicitly
-  local -a base_pkgs=() line
-  while IFS= read -r line; do
-    line="${line%%#*}"; line="$(echo "$line" | xargs)" || true
-    [ -z "$line" ] && continue
-    case "$line" in
-      base|base-devel|linux|linux-firmware|linux-headers|grub|efibootmgr|os-prober|mkinitcpio) ;;
-      *) base_pkgs+=("$line") ;;
-    esac
-  done < "$SRC/packages/base.packages"
-
-  # Mandatory Extras: LUKS (cryptsetup For crypttab + luksUUID), ufw.
-  local -a extra_pkgs=(cryptsetup ufw ufw-dinit iptables)
-
-  pacman -Sy archlinux-keyring artix-keyring >>"$LOG" 2>&1 || true
-  basestrap -K $MNT base base-devel linux linux-firmware linux-headers \
-    grub efibootmgr os-prober mkinitcpio btrfs-progs dosfstools \
-    "${extra_pkgs[@]}" "${base_pkgs[@]}" \
-    >>"$LOG" 2>&1
-
-  # Locale: The Target's locale.gen Now Exists — Enable Pick + en_US, Generate.
-  step "Generating Locale $LOCALE"
-  artix-chroot $MNT bash -c "POST_LOCALE_GEN=$(printf '%q' "$POST_LOCALE_GEN"); eval \"\$POST_LOCALE_GEN\""
-
-  # Chaotic-AUR (For ungoogled-chromium-bin, papirus-folders)
-  cat >> /mnt/etc/pacman.conf <<'EOF'
-
-[chaotic-aur]
-SigLevel = Optional TrustAll
-Server = https://cdn-mirror.chaotic.cx/$repo/$arch
-Server = https://geo-mirror.chaotic.cx/$repo/$arch
-EOF
-  if ! grep -qs '^\[extra\]' /mnt/etc/pacman.conf; then
-    # Last-Ditch: Arch Extra, Used Only for Packages Artix and Chaotic Lack.
-    # The Stock ISO Lacks artix-archlinux-support (No arch-mirrorlist); Point
-    # Straight At the Arch Geo Mirror Instead of an Include.
-    cat >> /mnt/etc/pacman.conf <<'EOF'
-
-[extra]
-SigLevel = PackageRequired
-Server = https://geo.mirror.pkgbuild.com/extra/os/$arch
-EOF
-    if [ -f /etc/pacman.d/arch-mirrorlist ]; then
-      cp /etc/pacman.d/arch-mirrorlist /mnt/etc/pacman.d/
-      sed -i 's|^Server = https://geo.mirror.pkgbuild.com/extra/os/$arch|Include = /etc/pacman.d/arch-mirrorlist|' /mnt/etc/pacman.conf
-    fi
-  fi
-
-  # Desktop Packages (hyprland, quickshell, ghostty, sddm, browsers, ...)
+install_desktop_pkgs() {
   step "Installing Desktop Packages"
-  local -a desk_pkgs=()
+  local -a desk_pkgs=() line
   while IFS= read -r line; do
     line="${line%%#*}"; line="$(echo "$line" | xargs)" || true
     [ -z "$line" ] && continue
     desk_pkgs+=("$line")
   done < "$SRC/packages/desktop.packages"
-  artix-chroot $MNT pacman -Sy --noconfirm --needed --asexplicit "${desk_pkgs[@]}" >>"$LOG" 2>&1 \
+
+  pacman -Syu --noconfirm --needed >>"$LOG" 2>&1
+  pacman -Sy --noconfirm --needed --asexplicit "${desk_pkgs[@]}" >>"$LOG" 2>&1 \
     || die "Desktop Package Install Failed — Check $LOG."
-
-  artix-chroot $MNT pacman -Syu --noconfirm --needed >>"$LOG" 2>&1
 }
 
-make_fstab() {
-  step "Generating Fstab"
-  mkdir -p /mnt/etc
-  fstabgen -U $MNT > /mnt/etc/fstab
-
-  # fstabgen Can Pick Up the ISO's Own Swap Entry; Keep Only Target-Disk Lines.
-  # Swapfile Lives On the Encrypted Btrfs; Plain Directory On the Root Subvol.
-  grep -v 'swap' /mnt/etc/fstab > /tmp/fstab.clean
-  echo "/swap/swapfile none swap defaults 0 0" >> /tmp/fstab.clean
-  mv /tmp/fstab.clean /mnt/etc/fstab
-
-  # Normalize Btrfs Options: Add Compression, Keep subvol
-  grep -qs 'compress=zstd' /mnt/etc/fstab || \
-    sed -i -E 's|(btrfs[^\n]*subvol=)|\1compress=zstd,|' /mnt/etc/fstab
-  log "fstab:"
-  sed 's/^/    /' /mnt/etc/fstab
-}
-
+# ----------------------------------------------------------------------------
+# User Setup
+# ----------------------------------------------------------------------------
 configure_users() {
-  step "Creating Users"
-  printf '%s\n' "$ROOT_PW" "$ROOT_PW" | artix-chroot $MNT passwd root >/dev/null
-
-  # Login Shell: zsh For the User, root Keeps bash
-  artix-chroot $MNT useradd -m -G wheel -s /bin/zsh -c "$REALNAME" "$USERNAME"
-  printf '%s\n' "$USER_PW" "$USER_PW" | artix-chroot $MNT passwd "$USERNAME" >/dev/null
-
-  # Common/Necessary Groups: Sudo Via Wheel, Plus Classic Device Access
-  artix-chroot $MNT usermod -aG audio,video,optical,storage,lp,input,network "$USERNAME"
-
-  # Sudo For Wheel (System-Wide)
-  echo '%wheel ALL=(ALL:ALL) ALL' > /mnt/etc/sudoers.d/00-wheel
-  chmod 440 /mnt/etc/sudoers.d/00-wheel
-
-  # Ensure Wheel Exists Even On Minimal Installs
-  if ! grep -qs '^wheel:' /mnt/etc/group; then
-    artix-chroot $MNT groupadd -f wheel
+  # User and root already set up on the base system. Just ensure the target
+  # user is in the standard device groups and has zsh as login shell.
+  step "Confirming User"
+  usermod -aG audio,video,optical,storage,lp,input,network "$USERNAME" 2>/dev/null || true
+  if [ -x /bin/zsh ] && [ "$(getent passwd "$USERNAME" | cut -d: -f7)" != "/bin/zsh" ]; then
+    usermod -s /bin/zsh "$USERNAME"
   fi
-
-  # /bin/sh: dash (POSIX-Fast), bash Stays Available for root and Scripts
-  artix-chroot $MNT ln -sfn dash /usr/bin/sh
-}
-
-install_grub() {
-  step "Installing GRUB"
-  # Initramfs: Btrfs + encrypt + keyboard/keymap Hooks (Disk Is Always LUKS2).
-  # encrypt Runs the Passphrase Prompt Once — No Re-entry At the Greeter.
-  # encrypt Must Come After block, Before filesystems.
-  # keyboard/keymap/consolefont Let the Initramfs Prompt Honor Non-US Keymaps.
-  # Replace the entire HOOKS line with the Artix FDE standard order.
-  # encrypt must sit between block and filesystems; keyboard/keymap/consolefont
-  # make the passphrase prompt honor the chosen console keymap.
-  sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block keyboard keymap consolefont encrypt filesystems fsck)/' /mnt/etc/mkinitcpio.conf
-  grep -qs '^HOOKS=' /mnt/etc/mkinitcpio.conf || \
-    echo 'HOOKS=(base udev autodetect modconf block keyboard keymap consolefont encrypt filesystems fsck)' >> /mnt/etc/mkinitcpio.conf
-
-  # btrfs module must be in the initramfs so the root subvolume is mountable.
-  if ! grep -qs '^MODULES=.*\bbtrfs\b' /mnt/etc/mkinitcpio.conf; then
-    if grep -qs '^MODULES=()' /mnt/etc/mkinitcpio.conf; then
-      sed -i 's/^MODULES=()/MODULES=(btrfs)/' /mnt/etc/mkinitcpio.conf
-    else
-      sed -i -E 's/^MODULES=\((.*)\)$/MODULES=(btrfs \1)/' /mnt/etc/mkinitcpio.conf
-    fi
-  fi
-
-  # Regenerate initramfs with the encrypt/btrfs hooks before installing GRUB.
-  # The Artix FDE guide does this explicitly; otherwise the kernel cannot
-  # unlock the root partition on first boot.
-  artix-chroot $MNT mkinitcpio -P >>"$LOG" 2>&1 \
-    || die "mkinitcpio Failed — See $LOG."
-
-  local luksuuid
-  luksuuid=$(cryptsetup luksUUID "$part2")
-  artix-chroot $MNT grub-install --target=x86_64-efi --efi-directory=/boot \
-    --bootloader-id=Artix --recheck >>"$LOG" 2>&1 \
-    || die "grub-install Failed — See $LOG."
-  # Kernel Cmdline Points the encrypt Hook At the Container By UUID.
-  sed -i "s|GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luksuuid:cryptsystem root=/dev/mapper/cryptsystem\"|" \
-    /mnt/etc/default/grub
-  # Allow GRUB to read encrypted devices if /boot ever moves onto the LUKS volume.
-  sed -i 's/^#GRUB_ENABLE_CRYPTODISK=y/GRUB_ENABLE_CRYPTODISK=y/; s/^GRUB_ENABLE_CRYPTODISK=.*/GRUB_ENABLE_CRYPTODISK=y/' /mnt/etc/default/grub
-  artix-chroot $MNT grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG" 2>&1 \
-    || die "grub-mkconfig Failed — See $LOG."
 }
 
 enable_services() {
-  # dinit boot.d must exist before we link services into it.
-  install -d -m755 /mnt/etc/dinit.d/boot.d
-
-  # ufw Is Mandatory — Its dinit Service Runs `ufw enable` At Every Boot.
-  # tlp Is Included For Laptops (Battery / USB Power).
-  for svc in NetworkManager ufw bluetoothd avahi-daemon sshd cronie sddm userspawn tlp; do
-    if [ -e "/mnt/etc/dinit.d/$svc" ]; then
-      ln -sfn "/etc/dinit.d/$svc" "/mnt/etc/dinit.d/boot.d/$svc" 2>/dev/null || true
-    fi
+  step "Enabling dinit Services"
+  install -d -m755 /etc/dinit.d/boot.d
+  for svc in NetworkManager ufw bluetoothd avahi-daemon sshd cronie greetd userspawn tlp plymouth; do
+    [ -e "/etc/dinit.d/$svc" ] && ln -sfn "/etc/dinit.d/$svc" "/etc/dinit.d/boot.d/$svc" 2>/dev/null || true
   done
-  # User dinit Services (pipewire, dbus) Via userspawn
-  local home_dir="/mnt/home/$USERNAME"
+  # User dinit services
+  local home_dir="/home/$USERNAME"
   if [ -d "$home_dir" ]; then
     install -d -m755 "$home_dir/.config/dinit.d/boot.d"
     for s in dbus pipewire pipewire-pulse wireplumber; do
-      [ -e "/mnt/etc/dinit.d/user/$s" ] && ln -sfn "/etc/dinit.d/user/$s" "$home_dir/.config/dinit.d/boot.d/$s"
+      [ -e "/etc/dinit.d/user/$s" ] && ln -sfn "/etc/dinit.d/user/$s" "$home_dir/.config/dinit.d/boot.d/$s"
     done
-    chown -R "$(stat -c %u /mnt/home/$USERNAME)" "$home_dir/.config"
+    chown -R "$USERNAME:" "$home_dir/.config"
   fi
-  # Machine ID For dbus/elogind
-  artix-chroot $MNT dbus-uuidgen --ensure >/dev/null 2>&1 || true
-  [ -f /mnt/var/lib/dbus/machine-id ] && [ ! -f /mnt/etc/machine-id ] && \
-    cp /mnt/var/lib/dbus/machine-id /mnt/etc/machine-id || true
+  dbus-uuidgen --ensure >/dev/null 2>&1 || true
+  [ -f /var/lib/dbus/machine-id ] && [ ! -f /etc/machine-id ] && \
+    cp /var/lib/dbus/machine-id /etc/machine-id || true
 }
 
 # ----------------------------------------------------------------------------
@@ -625,7 +150,8 @@ deploy_configs() {
   [ -d "$SRC/conf" ] || die "Config Layer Missing Next To The Installer — Clone the Full Repo (git clone), Not a Single File."
 
   step "Deploying Desktop Configs"
-  local u_home="/mnt/home/$USERNAME"
+
+  local u_home="/home/$USERNAME"
   install -d -m755 "$u_home"/.config/{hypr,quickshell,ghostty,wlogout,gtk-3.0,gtk-4.0,qt6ct,fontconfig,dinit} "$u_home"/.local/bin
 
   cp -r "$SRC"/conf/hypr/.       "$u_home/.config/hypr/"
@@ -634,68 +160,59 @@ deploy_configs() {
   cp -r "$SRC"/conf/wlogout/.    "$u_home/.config/wlogout/"
   cp -r "$SRC"/conf/gtk/.     "$u_home/.config/"
   cp -r "$SRC"/conf/qt/.      "$u_home/.config/qt6ct/"
+
+  # Resolve the $USER placeholder in the qt6ct color-scheme path so the
+  # custom palette is found without manual edits.
+  if [ -f "$u_home/.config/qt6ct/qt6ct.conf" ]; then
+    sed -i "s|/home/\$USER/|/home/$USERNAME/|g" "$u_home/.config/qt6ct/qt6ct.conf"
+  fi
+
+  # Make Xresources active for the current user on next X/Wayland session start.
+  install -Dm644 "$SRC"/conf/gtk/Xresources "$u_home/.Xresources"
   cp "$SRC"/conf/zsh/zshrc    "$u_home/.zshrc"
   cp "$SRC"/conf/vim/vimrc    "$u_home/.vimrc"
   install -Dm755 "$SRC"/conf/bin/keybind-cheatsheet "$u_home/.local/bin/keybind-cheatsheet"
 
-  chown -R "$(stat -c %u "$u_home")":"$(stat -c %g "$u_home")" "$u_home/.config" "$u_home/.local/bin" "$u_home/.vimrc" "$u_home/.zshrc"
+  chown -R "$USERNAME:" "$u_home/.config" "$u_home/.local/bin" "$u_home/.vimrc" "$u_home/.zshrc"
 
-  # SDDM: Bundled Overrides + Arc Dark Theme (Replaces the Stock Configs)
-  install -Dm644 "$SRC"/system/sddm/sddm.conf /mnt/etc/sddm.conf.d/danelos.conf
-  mkdir -p /mnt/usr/share/sddm/themes/arc-dark
-  cp -r "$SRC"/system/sddm/themes/arc-dark/. /mnt/usr/share/sddm/themes/arc-dark/
+  install -Dm644 "$SRC"/system/greetd/config.toml /etc/greetd/config.toml
+  install -Dm644 "$SRC"/system/tlp/tlp.conf /etc/tlp.conf
+  install -Dm644 "$SRC"/system/plymouth/plymouthd.conf /etc/plymouth/plymouthd.conf
 
-  # TLP Laptop Config: USB autosuspend disabled on battery.
-  install -Dm644 "$SRC"/system/tlp/tlp.conf /mnt/etc/tlp.conf
-
-  install -d /mnt/usr/share/backgrounds
-  cp "$SRC"/wallpapers/*.jpg /mnt/usr/share/backgrounds/
+  install -d /usr/share/backgrounds
+  cp "$SRC"/wallpapers/*.jpg /usr/share/backgrounds/
 
   # Dark Folders For Papirus Icons
-  artix-chroot $MNT sudo -u "$USERNAME" papirus-folders -C ePapirus-Dark --theme Papirus-Dark >/dev/null 2>&1 || true
+  sudo -u "$USERNAME" papirus-folders -C ePapirus-Dark --theme Papirus-Dark >/dev/null 2>&1 || true
 }
 
 configure_firewall() {
   step "Configuring ufw Firewall"
-  # Defaults: Deny Incoming, Allow Outgoing, Deny Routed. IPv6 On.
-  sed -i 's/^ENABLED=no/ENABLED=yes/' /mnt/etc/ufw/ufw.conf
-  sed -i 's/^IPV6=no/IPV6=yes/' /mnt/etc/default/ufw
-  # Seed the Rules File With the Default Policy (ufw-dinit Runs `ufw enable`
-  # At Boot, Which Reloads These).
-  artix-chroot $MNT ufw --force reset >>"$LOG" 2>&1 || true
-  artix-chroot $MNT ufw default deny incoming >>"$LOG" 2>&1
-  artix-chroot $MNT ufw default allow outgoing >>"$LOG" 2>&1
-  # Loopback + NetworkManager DHCP/RA Must Never Be Blocked.
-  artix-chroot $MNT ufw allow in on lo >>"$LOG" 2>&1
-  artix-chroot $MNT ufw allow out on lo >>"$LOG" 2>&1
-  artix-chroot $MNT ufw allow in proto udp from any port 67 to any port 68 >>"$LOG" 2>&1
-  artix-chroot $MNT ufw allow in proto ipv6 from fe80::/10 >>"$LOG" 2>&1
-  artix-chroot $MNT ufw --force enable >>"$LOG" 2>&1
-  log "ufw Status (Chroot):"
-  artix-chroot $MNT ufw status verbose | sed 's/^/    /' | tee -a "$LOG"
+  sed -i 's/^ENABLED=no/ENABLED=yes/' /etc/ufw/ufw.conf
+  sed -i 's/^IPV6=no/IPV6=yes/' /etc/default/ufw
+  ufw --force reset >>"$LOG" 2>&1 || true
+  ufw default deny incoming >>"$LOG" 2>&1
+  ufw default allow outgoing >>"$LOG" 2>&1
+  ufw allow in on lo >>"$LOG" 2>&1
+  ufw allow out on lo >>"$LOG" 2>&1
+  ufw allow in proto udp from any port 67 to any port 68 >>"$LOG" 2>&1
+  ufw allow in proto ipv6 from fe80::/10 >>"$LOG" 2>&1
+  ufw --force enable >>"$LOG" 2>&1
+  log "ufw Status:"
+  ufw status verbose | sed 's/^/    /' | tee -a "$LOG"
 }
 
 # ----------------------------------------------------------------------------
 # Fin
 # ----------------------------------------------------------------------------
 finish() {
-  # Swap Off FIRST — An Active Swapfile Holds the Btrfs Mount And LUKS
-  # Container Open, So umount/close Would Fail After It.
-  swapoff /mnt/swap/swapfile 2>/dev/null || true
-  umount -R /mnt 2>/dev/null || true
-  cryptsetup close cryptsystem 2>/dev/null || true
-
-  whiptail --title "Artix — Done" --msgbox "Install Complete. Reboot, Pull the USB Stick, Done.
+  whiptail --title "Artix — Desktop Layer Done" --msgbox "Desktop Layer Installed.
 
 User:      $USERNAME
-Hostname:  $HOSTNAME
-Timezone:  $TIMEZONE
-Locale:    $LOCALE
-Disk:      $DISK
-LUKS2:     ON — Disk Passphrase Asked Once At Boot
+Login:     greetd + tuigreet → Hyprland
 Firewall:  ufw ON — All Incoming Denied
 
-Greeter → Login → Hyprland. Enjoy the Freedom." 17 60
+Enable greetd if it isn't already, then reboot or start the dinit service." 14 60
 }
 
 # ============================================================================
@@ -704,15 +221,10 @@ main() {
   : > "$LOG"
   ensure_deps
   ask_questions
-  select_disk
-  open_disk
-  write_keyfiles
-  basestrap_target
+  install_desktop_pkgs
   configure_users
-  make_fstab
   enable_services
   deploy_configs
-  install_grub
   configure_firewall
   finish
 }

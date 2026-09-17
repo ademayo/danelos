@@ -1,0 +1,10 @@
+# danelos greetd + tuigreet configuration
+# tuigreet runs on the first free TTY; it launches Hyprland once the user
+# authenticates. No graphical greeter, no weston dependency.
+
+[terminal]
+vt = 1
+
+[default_session]
+command = "tuigreet --time --remember --remember-session --sessions /usr/share/wayland-sessions --cmd Hyprland"
+user = "greetd"

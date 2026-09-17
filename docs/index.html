@@ -187,15 +187,15 @@
 
 <header class="hero">
   <h1>Artix <span>+</span> Hyprland <span>Desktop Recipe</span></h1>
-  <p class="tagline">One command from the Artix ISO to a complete tiling desktop.
-  dinit as init, Hyprland as the compositor, Arc Dark gluing it together.
-  What you end up with reads as a hand-configured Artix install.</p>
+  <p class="tagline">One command on an already-installed Artix + dinit base system to a
+  complete tiling desktop. Hyprland as the compositor, greetd + tuigreet as the
+  greeter, Arc Dark gluing it together.</p>
   <div class="badges">
     <span class="badge"><b>Artix</b> Linux</span>
     <span class="badge"><b>dinit</b> init</span>
     <span class="badge"><b>Hyprland</b> Wayland</span>
     <span class="badge"><b>Arc Dark</b> theme</span>
-    <span class="badge"><b>SDDM</b> Arc Dark</span>
+    <span class="badge"><b>greetd</b> tuigreet</span>
     <span class="badge"><b>zsh</b> + agnoster</span>
   </div>
 </header>
@@ -207,38 +207,30 @@
   <div class="grid">
     <div class="card"><h3><span class="icon">◆</span> Base</h3><p>Artix Linux, dinit init, elogind, userspawn for user session spawning.</p></div>
     <div class="card"><h3><span class="icon">▣</span> Compositor</h3><p>Hyprland with hypridle, hyprlock, hyprpaper, hyprshot — native Wayland throughout.</p></div>
-    <div class="card"><h3><span class="icon">⏻</span> Login</h3><p>SDDM greeter on Wayland (Weston kiosk), bundled Arc Dark QML theme. No X server anywhere in the boot path.</p></div>
+    <div class="card"><h3><span class="icon">⏻</span> Login</h3><p>greetd + tuigreet TUI greeter launches Hyprland directly. No X server / Weston in the boot path.</p></div>
     <div class="card"><h3><span class="icon">⌘</span> Shell</h3><p>zsh as default with an agnoster prompt, autosuggestions and syntax highlighting. dash as /bin/sh.</p></div>
     <div class="card"><h3><span class="icon">▤</span> Terminal</h3><p>ghostty, Arc Dark palette, CaskaydiaCove Nerd Font. Bound to Ctrl+Alt+T and Super+Return.</p></div>
-    <div class="card"><h3><span class="icon">◫</span> Desktop</h3><p>quickshell (bar + launcher), wlogout, thunar + tumbler thumbnails. Arc Dark GTK + Papirus icons across GTK and Qt.</p></div>
-    <div class="card"><h3><span class="icon">✦</span> Everyday Apps</h3><p>ristretto (images), mpv (video), qpdfview (PDFs), galculator, xarchiver, pavucontrol-qt (sound) — lightweight XFCE/MATE/Qt picks, no GNOME apps.</p></div>
+    <div class="card"><h3><span class="icon">◫</span> Desktop</h3><p>quickshell (bar + launcher), wlogout, dolphin file manager with dolphin-plugins + kio-extras. Arc Dark unified across GTK and Qt via a custom qt6ct palette, Papirus icons everywhere.</p></div>
+    <div class="card"><h3><span class="icon">✦</span> Everyday Apps</h3><p>gwenview (images), qpdfview (PDFs), ark archives, mpv (video), pavucontrol-qt (sound), betterbird-bin mail — Qt/KDE picks, no GNOME apps.</p></div>
   </div>
 </section>
 
 <section>
   <h2>Install</h2>
-  <p>Runs from a stock <span class="mono">artix-base-dinit</span> ISO. Boot it, log in as the
-  live user (password <span class="mono">artix</span>), connect to Wi-Fi or Ethernet, then:</p>
-  <div class="code-wrap"><span class="lbl">live session</span>
-<pre><span class="cmt"># wipes the target disk — the installer asks before touching anything</span>
-<span class="cmd">sudo pacman -Syu git --noconfirm && \
-  git clone https://github.com/ademayo/danelos.git && \
+  <p>Assumes an already-installed Artix base system with <span class="mono">dinit</span> init and the
+  <span class="mono">Chaotic-AUR</span> repo configured. Run as root on the installed system:</p>
+  <div class="code-wrap"><span class="lbl">installed system</span>
+<pre><span class="cmt"># only touches packages, services, and configs — no disk/bootloader changes</span>
+<span class="cmd">git clone https://github.com/ademayo/danelos.git && \
   sudo ./danelos/installer/recipe</span></pre>
   </div>
-  <h3 style="margin-top:18px">Wi-Fi via wpa_supplicant</h3>
-  <p>The stock ISO ships no NetworkManager — bring the link up by hand first
-  (as root, <span class="mono">wlan0</span> = your interface, see <span class="mono">ip link</span>):</p>
-  <div class="code-wrap"><span class="lbl">live session</span>
-<pre><span class="cmd">rfkill unblock all
-wpa_supplicant -B -i wlan0 -c &lt;(wpa_passphrase 'MyNetwork' 'MyPassword')
-dhcpcd wlan0</span></pre>
-  </div>
-  <p style="margin-top:14px">Once <span class="mono">ping -c1 artixlinux.org</span> works, run the
-  installer. It asks for
-  hostname, your name, username, passwords and timezone, then partitions the disk
-  as EFI + swap + Btrfs root (<span class="mono">@</span> and <span class="mono">@home</span> subvolumes,
-  zstd compression), pacstraps Artix + dinit, installs the desktop, creates your
-  user and sets up GRUB. Reboot into Hyprland.</p>
+  <p style="margin-top:14px">The installer asks for the target username (must already exist), then installs
+  the Hyprland desktop packages, enables dinit services, deploys all configs,
+  and sets ufw to default-deny incoming. Enable/start <span class="mono">greetd</span> if it isn't
+  already. For the Plymouth boot splash, add <span class="mono">plymouth</span> to
+  <span class="mono">HOOKS</span> in <span class="mono">/etc/mkinitcpio.conf</span>, add
+  <span class="mono">quiet splash</span> to <span class="mono">GRUB_CMDLINE_LINUX_DEFAULT</span>,
+  regenerate initramfs and GRUB, then reboot into Hyprland.</p>
 </section>
 
 <section>
@@ -278,7 +270,7 @@ dhcpcd wlan0</span></pre>
     <span><b>avahi-daemon</b></span>
     <span><b>sshd</b></span>
     <span><b>cronie</b></span>
-    <span><b>sddm</b></span>
+    <span><b>greetd</b></span>
     <span><b>userspawn</b></span>
     <span><b>dbus</b> (user)</span>
     <span><b>pipewire</b> (user)</span>

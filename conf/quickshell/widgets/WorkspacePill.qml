@@ -10,20 +10,21 @@ Rectangle {
     property bool occupied: false
     signal clicked()
 
-    width: 26; height: 26
-    radius: 7
-    color: active ? Theme.bgSelected : (occupied ? Theme.bgHover : "transparent")
-    border.color: active ? Theme.bgSelected : Theme.fgDim
-    border.width: active ? 0 : 1
+    width: 24; height: 24
+    radius: 6
+    color: active ? Theme.bgSelected : (occupied ? Theme.bgAlt : "transparent")
+    border.color: active ? Theme.accent : (occupied ? Theme.fgDim : Theme.border)
+    border.width: 1
 
-    Behavior on color { ColorAnimation { duration: 120 } }
+    Behavior on color { ColorAnimation { duration: 100 } }
+    Behavior on border.color { ColorAnimation { duration: 100 } }
 
     Text {
         anchors.centerIn: parent
         text: root.wsId
         color: active ? Theme.fgBright : Theme.fg
         font.pixelSize: Theme.fontSmall
-        font.bold: true
+        font.bold: active
         font.family: Theme.family
     }
 
