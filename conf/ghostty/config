@@ -1,0 +1,54 @@
+# Ghostty — Arc Dark, Caskaydia Cove
+
+# Font
+font-family = CaskaydiaCove Nerd Font
+font-size = 11
+font-style = Regular
+font-style-bold = Bold
+font-style-italic = Italic
+font-style-bold-italic = Bold Italic
+font-feature = +liga
+
+# Window
+window-padding-x = 6
+window-padding-y = 6
+window-decoration = auto
+window-theme = ghostty
+background-opacity = 0.96
+background-blur = true
+
+# Cursor
+cursor-style = block
+cursor-style-blink = true
+cursor-color = #d3dae3
+cursor-text = #2f343f
+
+# Scrollback
+scrollback-limit = 10000000
+
+# Shell
+shell-integration = detect
+shell-integration-features = cursor,sudo,title
+
+# Arc Dark Palette
+palette = 0=#33363d
+palette = 1=#f8606a
+palette = 2=#96d988
+palette = 3=#f3d469
+palette = 4=#86a2be
+palette = 5=#d0afca
+palette = 6=#8bc7c6
+palette = 7=#d3dae3
+palette = 8=#5c616c
+palette = 9=#f8606a
+palette = 10=#96d988
+palette = 11=#f3d469
+palette = 12=#86a2be
+palette = 13=#d0afca
+palette = 14=#8bc7c6
+palette = 15=#d3dae3
+
+background = #2f343f
+foreground = #d3dae3
+selection-background = #4a4e59
+selection-foreground = #ffffff

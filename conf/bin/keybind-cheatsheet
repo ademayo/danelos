@@ -1,6 +1,6 @@
 #!/bin/bash
 # Keybind Cheatsheet — Reads the Binds Hyprland Is Actually Using Right Now
-# Via `hyprctl binds -j` and shows them in rofi. Always Accurate, Even After
+# Via `hyprctl binds -j` and shows them in fuzzel. Always Accurate, Even After
 # Config Edits, Because Hyprland Reports Its Live State.
 
 set -euo pipefail
@@ -25,7 +25,6 @@ output=$(hyprctl binds -j | jq -r '.[] | [.modmask, .key, (if .description == ""
         printf "%-24s %-14s %s\n" "${mod:-none}" "$key" "$desc"
       done)
 
-printf '%s' "$output" | rofi -dmenu -i \
+printf '%s' "$output" | fuzzel -d \
     -p "Keybinds  ($(( $(printf '%s' "$output" | wc -l) )) binds)" \
-    -theme-str 'window {width: 52em;}' \
-    -theme-str 'listview {lines: 16;}'
+    --width 52

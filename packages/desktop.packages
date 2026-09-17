@@ -15,19 +15,22 @@ xdg-desktop-portal-gtk
 xorg-xwayland
 
 # Bar, Launcher, Logout
-waybar
-rofi
+quickshell
 fuzzel
 wlogout
 
 # Terminal, File Manager, Utilities — XFCE/MATE Ecosystem, No GNOME Apps
-alacritty
+ghostty
 thunar
 thunar-archive-plugin
 gvfs
 gvfs-mtp
 xarchiver
 pavucontrol-qt
+pasystray
+blueman
+xfce4-power-manager
+nwg-clipman
 playerctl
 brightnessctl
 swaybg
@@ -48,6 +51,10 @@ tumbler
 sddm
 sddm-dinit
 weston
+
+# Laptop: ThinkPad battery / fingerprint support
+tpacpi-bat
+fprintd
 
 # Theme: Arc Dark + Papirus + Fonts
 arc-gtk-theme

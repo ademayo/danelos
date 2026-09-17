@@ -416,27 +416,11 @@ partition_disk() {
   modprobe dm_mod dm_crypt 2>/dev/null || true
   cryptsetup benchmark >>"$LOG" 2>&1 || true
 
-  # Pick a PBKDF the live kernel actually supports. Argon2id is preferred but
-  # can fail on older kernels/live media with "device-mapper ioctl invalid
-  # option"; fall back to argon2i and then pbkdf2 so the install never gets
-  # stuck on compatibility issues. Memory cap prevents OOM on low-RAM ISOs.
-  local pbdf="argon2id"
-  log "Encrypting $part2 (LUKS2, probing PBKDF compat)"
-  if ! printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
-       --pbkdf argon2id --pbkdf-memory 131072 --batch-mode --key-file - "$part2" >>"$LOG" 2>&1; then
-    log "argon2id failed; trying argon2i"
-    if printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
-         --pbkdf argon2i --pbkdf-memory 131072 --batch-mode --key-file - "$part2" >>"$LOG" 2>&1; then
-      pbdf="argon2i"
-    else
-      log "argon2i failed; using pbkdf2"
-      printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 \
-        --pbkdf pbkdf2 --batch-mode --key-file - "$part2" >>"$LOG" 2>&1 \
-        || die "cryptsetup luksFormat Failed For $part2 With All PBKDFs — See $LOG."
-      pbdf="pbkdf2"
-    fi
-  fi
-  log "LUKS2 created with PBKDF: $pbdf"
+  # LUKS2 with defaults. --use-urandom avoids blocking on /dev/random entropy
+  # during live-media installs, which was the root cause of the prior hangs.
+  log "Encrypting $part2 (LUKS2, defaults, urandom)"
+  cryptsetup luksFormat --type luks2 --use-urandom "$part2" >>"$LOG" 2>&1 \
+    || die "cryptsetup luksFormat Failed For $part2 — See $LOG."
 
   log "Opening LUKS Container"
   # If a previous run left the dm mapping in an odd state, remove it first.
@@ -577,7 +561,7 @@ EOF
     fi
   fi
 
-  # Desktop Packages (hyprland, waybar, alacritty, sddm, browsers, ...)
+  # Desktop Packages (hyprland, quickshell, ghostty, sddm, browsers, ...)
   step "Installing Desktop Packages"
   local -a desk_pkgs=()
   while IFS= read -r line; do
@@ -680,7 +664,8 @@ enable_services() {
   install -d -m755 /mnt/etc/dinit.d/boot.d
 
   # ufw Is Mandatory — Its dinit Service Runs `ufw enable` At Every Boot.
-  for svc in NetworkManager ufw bluetoothd avahi-daemon sshd cronie sddm userspawn; do
+  # tlp Is Included For Laptops (Battery / USB Power).
+  for svc in NetworkManager ufw bluetoothd avahi-daemon sshd cronie sddm userspawn tlp; do
     if [ -e "/mnt/etc/dinit.d/$svc" ]; then
       ln -sfn "/etc/dinit.d/$svc" "/mnt/etc/dinit.d/boot.d/$svc" 2>/dev/null || true
     fi
@@ -709,13 +694,12 @@ deploy_configs() {
 
   step "Deploying Desktop Configs"
   local u_home="/mnt/home/$USERNAME"
-  install -d -m755 "$u_home"/.config/{hypr,waybar,alacritty,rofi,wlogout,gtk-3.0,gtk-4.0,qt6ct,fontconfig,dinit} "$u_home"/.local/bin
+  install -d -m755 "$u_home"/.config/{hypr,quickshell,ghostty,wlogout,gtk-3.0,gtk-4.0,qt6ct,fontconfig,dinit} "$u_home"/.local/bin
 
-  cp -r "$SRC"/conf/hypr/.    "$u_home/.config/hypr/"
-  cp -r "$SRC"/conf/waybar/.  "$u_home/.config/waybar/"
-  cp -r "$SRC"/conf/alacritty/. "$u_home/.config/alacritty/"
-  cp -r "$SRC"/conf/rofi/.    "$u_home/.config/rofi/"
-  cp -r "$SRC"/conf/wlogout/. "$u_home/.config/wlogout/"
+  cp -r "$SRC"/conf/hypr/.       "$u_home/.config/hypr/"
+  cp -r "$SRC"/conf/quickshell/. "$u_home/.config/quickshell/"
+  cp -r "$SRC"/conf/ghostty/.    "$u_home/.config/ghostty/"
+  cp -r "$SRC"/conf/wlogout/.    "$u_home/.config/wlogout/"
   cp -r "$SRC"/conf/gtk/.     "$u_home/.config/"
   cp -r "$SRC"/conf/qt/.      "$u_home/.config/qt6ct/"
   cp "$SRC"/conf/zsh/zshrc    "$u_home/.zshrc"
@@ -728,6 +712,9 @@ deploy_configs() {
   install -Dm644 "$SRC"/system/sddm/sddm.conf /mnt/etc/sddm.conf.d/danelos.conf
   mkdir -p /mnt/usr/share/sddm/themes/arc-dark
   cp -r "$SRC"/system/sddm/themes/arc-dark/. /mnt/usr/share/sddm/themes/arc-dark/
+
+  # TLP Laptop Config: USB autosuspend disabled on battery.
+  install -Dm644 "$SRC"/system/tlp/tlp.conf /mnt/etc/tlp.conf
 
   install -d /mnt/usr/share/backgrounds
   cp "$SRC"/wallpapers/*.jpg /mnt/usr/share/backgrounds/

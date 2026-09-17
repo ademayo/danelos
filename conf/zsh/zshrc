@@ -196,7 +196,7 @@ setopt HIST_VERIFY
 
 # Keep a Running Clock in Titles; Terminal Title Shows Cwd
 case $TERM in
-  xterm*|alacritty|*) precmd_functions+=(set_title) ;;
+  xterm*|alacritty|ghostty|*) precmd_functions+=(set_title) ;;
 esac
 set_title() {
   print -Pn "\e]0;%n@%m: %~\a"
