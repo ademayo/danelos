@@ -416,7 +416,8 @@ partition_disk() {
   # LUKS2 with defaults. --use-urandom avoids blocking on /dev/random entropy
   # during live-media installs, which was the root cause of the prior hangs.
   log "Encrypting $part2 (LUKS2, defaults, urandom)"
-  cryptsetup luksFormat --type luks2 --use-urandom "$part2" >>"$LOG" 2>&1 \
+  printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 --use-urandom \
+    --batch-mode --key-file - "$part2" >>"$LOG" 2>&1 \
     || die "cryptsetup luksFormat Failed For $part2 — See $LOG."
 
   log "Opening LUKS Container"
