@@ -409,11 +409,8 @@ partition_disk() {
   mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1 \
     || die "mkfs.fat Failed For $part1 — See $LOG."
 
-  # Pre-load crypto and device-mapper modules so luksFormat/open don't fail
-  # silently on a bare live kernel (matches the Artix FDE guide's
-  # `cryptsetup benchmark` step). NVMe + some live media need dm_mod/dm_crypt
-  # explicitly loaded before the mapping is created.
-  modprobe dm_mod dm_crypt 2>/dev/null || true
+  # Run a quick cryptsetup benchmark so any required crypto/device-mapper
+  # modules are pulled in via udev/modprobe before luksFormat/open.
   cryptsetup benchmark >>"$LOG" 2>&1 || true
 
   # LUKS2 with defaults. --use-urandom avoids blocking on /dev/random entropy
