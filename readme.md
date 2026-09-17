@@ -163,7 +163,7 @@ User services (via userspawn): `dbus`, `pipewire`, `pipewire-pulse`,
   `~/.config/hypr/hyprlock.conf`), or swap `moraine-lake.jpg` for a different
   image from the set.
 
-### ThinkPad T490 (and similar laptops)
+###  Laptops
 
 Laptop support is baked in:
 
