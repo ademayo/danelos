@@ -74,8 +74,8 @@ ensure_deps() {
   # sgdisk (gptfdisk) and cryptsetup aren't on the base ISO; util-linux is
   # already present but re-ensure it for wipefs. Failure dies loudly here
   # instead of at the first partition/crypto call.
-  pacman -Sy --noconfirm --needed gptfdisk cryptsetup util-linux >>"$LOG" 2>&1 \
-    || die "gptfdisk/cryptsetup/util-linux Install Failed — Check $LOG And Your Network Connection."
+  pacman -Sy --noconfirm --needed cryptsetup util-linux >>"$LOG" 2>&1 \
+    || die "cryptsetup/util-linux Install Failed — Check $LOG And Your Network Connection."
   local missing=()
   for c in whiptail vim git; do
     command -v "$c" >/dev/null 2>&1 || missing+=("$c")
@@ -85,8 +85,8 @@ ensure_deps() {
     pacman -Sy --noconfirm --needed libnewt vim git >>"$LOG" 2>&1 \
       || die "ISO Tools Install Failed (${missing[*]}) — Check $LOG."
   fi
-  for c in whiptail sgdisk cryptsetup wipefs basestrap artix-chroot fstabgen git; do
-    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Gptfdisk, Cryptsetup, Util-Linux, Artools-Base, Git First."
+  for c in whiptail cryptsetup wipefs basestrap artix-chroot fstabgen git; do
+    command -v "$c" >/dev/null 2>&1 || die "$c Unavailable — Install Libnewt, Cryptsetup, Util-Linux, Artools-Base, Git First."
   done
 }
 
@@ -311,135 +311,69 @@ select_disk() {
   size=$(lsblk -dn -o SIZE "$DISK")
   model=$(lsblk -dn -o MODEL "$DISK" | xargs)
 
-  local layout="  1  EFI System   512 MiB  FAT32  BOOT (Unencrypted)
-  2  Linux Root   Rest     LUKS2  cryptsystem
+  local layout="  1  EFI System   512 MiB  FAT32  BOOT (Blank — Will Be Formatted)
+  2  Linux FS     Rest     LUKS2  cryptsystem (Blank With LUKS — Will Be Opened)
      └ Btrfs     Rest            System  (@ And @home Subvolumes, Encrypted Swapfile)"
 
   whiptail --title "Artix — Final Confirmation" --yesno --defaultno \
-"This Will Erase $DISK ($model, $size) And Install Artix:
+"Selected Disk: $DISK ($model, $size)
 
 $layout
 
-LUKS2 Encryption: ON — Disk Passphrase At Boot.
+This Installer Does NOT Repartition. It Expects:
+  • Partition 1 as a BLANK EFI partition (will mkfs.fat).
+  • Partition 2 as a BLANK Linux Filesystem partition with LUKS already
+    created (will open, then mkfs.btrfs inside the opened container).
+
 Firewall: ufw ON (Deny Incoming).
 Locale: $LOCALE    Timezone: $TIMEZONE
 
-Proceed?" 18 70 || { log "Aborted At Confirmation."; exit 1; }
+Proceed?" 21 70 || { log "Aborted At Confirmation."; exit 1; }
   sync
 }
 
-partition_disk() {
-  step "Partitioning And Opening LUKS Container"
+open_disk() {
+  step "Opening Existing LUKS Container On Partition 2"
 
-  # Clean up leftovers from a previous aborted install. An active LUKS mapping
-  # or mounted target would make sgdisk/cryptsetup refuse to reuse the disk.
+  # Clean up leftovers from a previous aborted install.
   swapoff /mnt/swap/swapfile 2>/dev/null || true
   umount -R /mnt 2>/dev/null || true
   if [ -e /dev/mapper/cryptsystem ]; then
-    log "Closing stale cryptsystem mapping before repartitioning"
+    log "Closing stale cryptsystem mapping before opening fresh"
     cryptsetup close cryptsystem 2>/dev/null || dmsetup remove cryptsystem 2>/dev/null || true
   fi
-  # Drop any leftover partition entries so the kernel starts from a clean GPT.
-  partx --delete --nr 1:2 "$DISK" >>"$LOG" 2>&1 || true
-  sync
 
-  # Zap and recreate GPT.
-  sgdisk --zap-all "$DISK" >>"$LOG" 2>&1
-  sgdisk -n 1:0:+512M -t 1:ef00 -c 1:BOOT "$DISK" >>"$LOG" 2>&1
-  sgdisk -n 2:0:0     -t 2:8304 -c 2:cryptsystem "$DISK" >>"$LOG" 2>&1
-  sync
-
-  # NVMe devices are sometimes lazy about repopulating /dev partition nodes.
-  # Tell the kernel, explicitly add the new partition entries, and wait until
-  # the nodes are real block devices that also appear in /proc/partitions.
-  blockdev --rereadpt "$DISK" >>"$LOG" 2>&1 || true
-  partx -u "$DISK" >>"$LOG" 2>&1 || true
-  partx --add --nr 1:2 "$DISK" >>"$LOG" 2>&1 || true
-  udevadm settle >>"$LOG" 2>&1 || true
-
-  local _prefix
-  if [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]]; then
-    _prefix="${DISK}p"
-  else
-    _prefix="${DISK}"
-  fi
-
-  local _p _tries _found
-  _tries=0
-  while [ "$_tries" -lt 50 ]; do
-    _found=0
-    for _p in "${_prefix}1" "${_prefix}2"; do
-      if [ -b "$_p" ] && grep -qE "[[:space:]]$(basename "$_p")$" /proc/partitions; then
-        _found=$((_found + 1))
-      fi
-    done
-    [ "$_found" -eq 2 ] && break
-    blockdev --rereadpt "$DISK" >>"$LOG" 2>&1 || true
-    partx --add --nr 1:2 "$DISK" >>"$LOG" 2>&1 || true
-    udevadm settle >>"$LOG" 2>&1 || true
-    sleep 0.2
-    _tries=$((_tries + 1))
-  done
-
-  # Direct node creation fallback: some live ISOs do not spawn udev events.
-  for _p in "${_prefix}1" "${_prefix}2"; do
-    if [ ! -e "$_p" ] && [ -r "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev" ]; then
-      local _mj _mn
-      IFS=: read -r _mj _mn < "/sys/block/$(basename "$DISK")/$(basename "$_p")/dev"
-      mknod "$_p" b "$_mj" "$_mn" 2>/dev/null || true
-    fi
-  done
-
-  # File Scope: part2 Is Read Back In write_keyfiles And install_grub (crypttab
-  # UUID + GRUB cryptdevice). Locals Die With This Function.
   part1=; part2=; part3=
   if [[ "$DISK" == *nvme* || "$DISK" == *mmcblk* || "$DISK" == *loop* ]]; then
-    part1="${DISK}p1"; part2="${DISK}p2"; part3="${DISK}p3"
+    part1="${DISK}p1"; part2="${DISK}p2"
   else
-    part1="${DISK}1"; part2="${DISK}2"; part3="${DISK}3"
+    part1="${DISK}1"; part2="${DISK}2"
   fi
 
-  [ -b "$part1" ] || die "ESP Partition Node $part1 Did Not Appear As a Block Device — See $LOG."
-  [ -b "$part2" ] || die "LUKS Partition Node $part2 Did Not Appear As a Block Device — See $LOG."
-
-  # Wipe any leftover signatures (LUKS, Btrfs, LVM) from the previous install so
-  # cryptsetup luksFormat cannot be confused by a stale header at the same offset.
-  wipefs --all --force "$part2" >>"$LOG" 2>&1 || true
+  [ -b "$part1" ] || die "ESP Partition $part1 Not Found — Disk Must Already Be Set Up With Partition 1 As EFI."
+  [ -b "$part2" ] || die "LUKS Partition $part2 Not Found — Disk Must Already Be Set Up With Partition 2 As LUKS."
 
   mkfs.fat -F32 -n BOOT "$part1" >>"$LOG" 2>&1 \
     || die "mkfs.fat Failed For $part1 — See $LOG."
 
-  # Run a quick cryptsetup benchmark so any required crypto/device-mapper
-  # modules are pulled in via udev/modprobe before luksFormat/open.
-  cryptsetup benchmark >>"$LOG" 2>&1 || true
-
-  # LUKS2 with defaults. --use-urandom avoids blocking on /dev/random entropy
-  # during live-media installs, which was the root cause of the prior hangs.
-  log "Encrypting $part2 (LUKS2, defaults, urandom)"
-  printf '%s' "$LUKS_PW" | cryptsetup luksFormat --type luks2 --use-urandom \
-    --batch-mode --key-file - "$part2" >>"$LOG" 2>&1 \
-    || die "cryptsetup luksFormat Failed For $part2 — See $LOG."
-
-  log "Opening LUKS Container"
-  # If a previous run left the dm mapping in an odd state, remove it first.
-  if [ -e /dev/mapper/cryptsystem ]; then
-    cryptsetup close cryptsystem 2>>"$LOG" || dmsetup remove cryptsystem 2>>"$LOG" || true
-    sleep 0.2
+  # Probe the LUKS header to make sure partition 2 really is a crypt container.
+  if ! cryptsetup isLuks "$part2" >>"$LOG" 2>&1; then
+    die "$part2 Does Not Contain a Recognized LUKS Header — Pre-Setup Disk Required."
   fi
+
+  log "Opening $part2 as /dev/mapper/cryptsystem"
   local crypt_rc
   printf '%s' "$LUKS_PW" | cryptsetup open --type luks2 \
     --key-file - "$part2" cryptsystem >>"$LOG" 2>&1 || crypt_rc=$?
   if [ "${crypt_rc:-0}" -ne 0 ]; then
     echo "cryptsetup open exit code: ${crypt_rc:-0}" >>"$LOG"
-    # Last-ditch: the kernel sometimes rejects the first dm reload on NVMe
-    # because of stale ioctl state; wait a moment and retry once.
     sleep 1
     crypt_rc=0
     printf '%s' "$LUKS_PW" | cryptsetup open --type luks2 \
       --key-file - "$part2" cryptsystem >>"$LOG" 2>&1 || crypt_rc=$?
     if [ "$crypt_rc" -ne 0 ]; then
       echo "cryptsetup open retry exit code: $crypt_rc" >>"$LOG"
-      die "cryptsetup open Failed For $part2 — See $LOG."
+      die "cryptsetup open Failed For $part2 — Wrong Passphrase Or Damaged Header. See $LOG."
     fi
   fi
   part3="/dev/mapper/cryptsystem"
@@ -771,7 +705,7 @@ main() {
   ensure_deps
   ask_questions
   select_disk
-  partition_disk
+  open_disk
   write_keyfiles
   basestrap_target
   configure_users
